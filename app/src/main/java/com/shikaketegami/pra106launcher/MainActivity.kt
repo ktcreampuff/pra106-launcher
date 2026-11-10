@@ -9,6 +9,7 @@ import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
 import android.content.pm.PackageManager
+import android.content.res.Configuration
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.graphics.ImageDecoder
@@ -126,7 +127,7 @@ class MainActivity : Activity() {
         bgScrim = findViewById(R.id.bgScrim)
         widgetScroll = findViewById(R.id.widgetScroll)
         widgetPanel = WidgetPanel(this, findViewById<LinearLayout>(R.id.widgetContainer))
-        applyWidgetVisibility()
+        widgetPanel.onChanged = { applyWidgetVisibility() }
         bgVideo.surfaceTextureListener = object : TextureView.SurfaceTextureListener {
             override fun onSurfaceTextureAvailable(st: SurfaceTexture, width: Int, height: Int) {
                 if (started && player == null && bgFailedGen != bgGeneration && videoActive()) startVideo(st)
@@ -159,6 +160,8 @@ class MainActivity : Activity() {
         dockAdapter = AppAdapter(R.layout.item_dock, { launchApp(it) }, { v, app -> showDockMenu(v, app) })
         dockAdapter.iconSizeDp = Prefs.getIconSizeDp(this)
         dockAdapter.iconScale = 0.85f
+        dockAdapter.iconMaxDp = DOCK_ICON_MAX_DP
+        dockAdapter.itemExtraWidthDp = DOCK_ITEM_EXTRA_DP
         dockList.adapter = dockAdapter
 
         settingsButton.setOnClickListener { showSettingsMenu(it) }
@@ -174,21 +177,34 @@ class MainActivity : Activity() {
         registerReceiver(packageReceiver, filter)
 
         refresh()
-        if (Prefs.getBackgroundLoading(this)) {
-            // 前回、背景の読み込み中に落ちた：背景を使わず解除する
-            Prefs.setBackgroundLoading(this, false)
-            deleteBackgroundFiles()
-            Prefs.setBackground(this, null, false)
-            Prefs.setBackgroundFailCount(this, 0)
-            Toast.makeText(this, R.string.home_background_crash_disabled, Toast.LENGTH_LONG).show()
+        if (Prefs.getBackgroundLoading(this, false) || Prefs.getBackgroundLoading(this, true)) {
+            // 前回、背景の読み込み中に落ちた可能性：即削除せず失敗回数を数え、3回で解除する
+            Prefs.setBackgroundLoading(this, false, false)
+            Prefs.setBackgroundLoading(this, true, false)
+            val n = Prefs.getBackgroundFailCount(this) + 1
+            if (n >= MAX_BG_FAILS) {
+                deleteBackgroundFiles()
+                Prefs.setBackground(this, null, false)
+                Prefs.setBackgroundFailCount(this, 0)
+                Toast.makeText(this, R.string.home_background_crash_disabled, Toast.LENGTH_LONG).show()
+            } else {
+                Prefs.setBackgroundFailCount(this, n)
+            }
         }
         applyBackground()
+    }
+
+    override fun onConfigurationChanged(newConfig: Configuration) {
+        super.onConfigurationChanged(newConfig)
+        // 画面の再生成はしない。列数の再計算だけ行う（レイアウト確定後にも再計算される）
+        appGrid.post { updateColumns() }
     }
 
     override fun onStart() {
         super.onStart()
         started = true
         widgetPanel.start()
+        applyWidgetVisibility()
         // 動画はonStartで準備・再生、onStopで解放する
         if (player == null && bgFailedGen != bgGeneration && videoActive() && bgVideo.isAvailable) {
             bgVideo.surfaceTexture?.let { startVideo(it) }
@@ -206,6 +222,9 @@ class MainActivity : Activity() {
         handler.removeCallbacks(reloadRunnable)
         bgGeneration++
         releasePlayer()
+        // 読み込み中フラグを下ろす（正常終了をクラッシュと誤判定しない）
+        Prefs.setBackgroundLoading(this, false, false)
+        Prefs.setBackgroundLoading(this, true, false)
         try {
             unregisterReceiver(packageReceiver)
         } catch (e: IllegalArgumentException) {
@@ -248,6 +267,7 @@ class MainActivity : Activity() {
         } catch (e: IllegalStateException) {
             // 無視
         }
+        applyWidgetVisibility()
         checkPermissionsAndMaybeStartOverlay()
     }
 
@@ -376,10 +396,9 @@ class MainActivity : Activity() {
                 MENU_COLUMNS -> showColumnsDialog()
                 MENU_ICON_SIZE -> showIconSizeDialog()
                 MENU_WIDGET_ADD -> {
-                    if (!Prefs.getWidgetPanelVisible(this)) {
-                        Prefs.setWidgetPanelVisible(this, true)
-                        applyWidgetVisibility()
-                    }
+                    // 空でも追加操作の間は領域を出す（結果が返ったら applyWidgetVisibility で再判定）
+                    Prefs.setWidgetPanelVisible(this, true)
+                    widgetScroll.visibility = View.VISIBLE
                     widgetPanel.addWidget()
                 }
                 MENU_WIDGET_TOGGLE -> {
@@ -421,7 +440,10 @@ class MainActivity : Activity() {
     @Deprecated("Deprecated in Java")
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
         super.onActivityResult(requestCode, resultCode, data)
-        if (widgetPanel.handleActivityResult(requestCode, resultCode, data)) return
+        if (widgetPanel.handleActivityResult(requestCode, resultCode, data)) {
+            applyWidgetVisibility()
+            return
+        }
         if (requestCode != REQUEST_BACKGROUND || resultCode != RESULT_OK) return
         val uri = data?.data ?: return
         importBackground(uri)
@@ -443,6 +465,7 @@ class MainActivity : Activity() {
             var highRes = false
             var dest: File? = null
             val tmp = File(dir, BG_TMP_NAME)
+            val posterNew = File(dir, BG_POSTER_NEW_NAME)
             try {
                 val name = try {
                     contentResolver.query(uri, arrayOf(OpenableColumns.DISPLAY_NAME), null, null, null)
@@ -460,21 +483,24 @@ class MainActivity : Activity() {
                 else if (isVideo) "mp4" else "jpg"
                 val input = contentResolver.openInputStream(uri) ?: throw IOException("open failed")
                 input.use { i -> FileOutputStream(tmp).use { o -> i.copyTo(o) } }
-                // コピー成功後に古いコピーを消して差し替える
-                deleteBackgroundFiles(dir, BG_TMP_NAME)
+                // 一時ファイル → rename の順。旧ファイルは rename 成功後に消す
                 val d = File(dir, "$BG_BASE_NAME.$ext")
                 if (!tmp.renameTo(d)) throw IOException("rename failed")
                 dest = d
-                if (isVideo) highRes = makePoster(d, File(dir, BG_POSTER_NAME), maxOf(dm.widthPixels, dm.heightPixels))
+                if (isVideo) highRes = makePoster(d, posterNew, maxOf(dm.widthPixels, dm.heightPixels))
                 ok = true
             } catch (e: Throwable) {
                 ok = false
             }
             if (ok && dest != null) {
+                // 旧ファイル（旧ポスター含む）を消し、新しいポスターを正式名にしてから設定を切り替える
+                deleteBackgroundFiles(dir, setOf(dest.name, BG_POSTER_NEW_NAME))
+                if (posterNew.exists()) posterNew.renameTo(File(dir, BG_POSTER_NAME))
                 Prefs.setBackground(app, "file://" + dest.absolutePath, isVideo)
                 Prefs.setBackgroundFailCount(app, 0)
             } else {
                 tmp.delete()
+                posterNew.delete()
             }
             handler.post {
                 if (ok) {
@@ -525,9 +551,9 @@ class MainActivity : Activity() {
     }
 
     /** 背景関連のコピー（background*）を filesDir から削除する。keep に指定した名前は残す */
-    private fun deleteBackgroundFiles(dir: File = filesDir, keep: String? = null) {
+    private fun deleteBackgroundFiles(dir: File = filesDir, keep: Set<String> = emptySet()) {
         dir.listFiles()?.forEach {
-            if (it.name.startsWith(BG_BASE_NAME) && it.name != keep) it.delete()
+            if (it.name.startsWith(BG_BASE_NAME) && it.name !in keep) it.delete()
         }
     }
 
@@ -544,7 +570,7 @@ class MainActivity : Activity() {
     private fun applyBackground() {
         bgGeneration++
         releasePlayer()
-        bgImage.setImageDrawable(null)
+        // 旧画像は新しいビットマップのデコード成功後に差し替える（ここでは消さない）
         val uriStr = Prefs.getBackgroundUri(this)
         if (uriStr == null) {
             hideBackgroundViews()
@@ -563,14 +589,19 @@ class MainActivity : Activity() {
         }
         bgScrim.visibility = View.VISIBLE
         if (Prefs.getBackgroundIsVideo(this)) {
-            bgImage.visibility = View.GONE
             bgVideo.visibility = View.VISIBLE
             val poster = File(file.parentFile, BG_POSTER_NAME)
-            if (poster.exists()) loadBackgroundImage(poster, true)
+            if (poster.exists()) {
+                // 新しいポスターのデコードが終わるまで旧画像を残す
+                loadBackgroundImage(poster, true)
+            } else {
+                bgImage.visibility = View.GONE
+                bgImage.setImageDrawable(null)
+            }
             // 既に Surface があれば直接開始、無ければ onSurfaceTextureAvailable で開始
             if (started && bgVideo.isAvailable) bgVideo.surfaceTexture?.let { startVideo(it) }
         } else {
-            bgVideo.visibility = View.GONE
+            // 旧動画の最終フレーム／旧画像は、新画像のデコード成功後に隠す
             loadBackgroundImage(file, false)
         }
     }
@@ -589,7 +620,8 @@ class MainActivity : Activity() {
         val reqW = dm.widthPixels
         val reqH = dm.heightPixels
         val app = applicationContext
-        Prefs.setBackgroundLoading(app, true)
+        // ポスターのデコードではフラグを立てない（画像用フラグのみ）
+        if (!poster) Prefs.setBackgroundLoading(app, false, true)
         Thread {
             var bmp: Bitmap? = null
             try {
@@ -597,7 +629,7 @@ class MainActivity : Activity() {
             } catch (e: Throwable) {
                 bmp = null
             }
-            Prefs.setBackgroundLoading(app, false)
+            if (!poster) Prefs.setBackgroundLoading(app, false, false)
             val result = bmp
             handler.post {
                 if (isDestroyed || gen != bgGeneration) return@post
@@ -607,7 +639,10 @@ class MainActivity : Activity() {
                     bgImage.setImageBitmap(result)
                     // 動画が既に描画中ならポスターは隠したまま
                     if (!poster || !videoRendering) bgImage.visibility = View.VISIBLE
-                    if (!poster) Prefs.setBackgroundFailCount(this, 0)
+                    if (!poster) {
+                        bgVideo.visibility = View.GONE
+                        Prefs.setBackgroundFailCount(this, 0)
+                    }
                 }
             }
         }.start()
@@ -669,7 +704,8 @@ class MainActivity : Activity() {
         videoW = 0
         videoH = 0
         videoRendering = false
-        Prefs.setBackgroundLoading(this, true)
+        // プロセス死亡の検知に必要なので、ここだけ commit で確実に書く
+        Prefs.setBackgroundLoading(this, true, true, sync = true)
         try {
             val surface = Surface(st)
             playerSurface = surface
@@ -696,7 +732,7 @@ class MainActivity : Activity() {
                     // 最初のフレームが描画されてからポスターを外して動画を見せる
                     videoRendering = true
                     bgImage.visibility = View.GONE
-                    Prefs.setBackgroundLoading(this, false)
+                    Prefs.setBackgroundLoading(this, true, false)
                     Prefs.setBackgroundFailCount(this, 0)
                 }
                 false
@@ -740,7 +776,7 @@ class MainActivity : Activity() {
         playerSurface?.release()
         playerSurface = null
         if (hadPlayer) {
-            Prefs.setBackgroundLoading(this, false)
+            Prefs.setBackgroundLoading(this, true, false)
             // 動画を止めたらポスターを再表示する
             if (videoActive() && bgImage.drawable != null) bgImage.visibility = View.VISIBLE
         }
@@ -754,7 +790,8 @@ class MainActivity : Activity() {
         if (bgFailedGen == bgGeneration) return
         bgFailedGen = bgGeneration
         releasePlayer()
-        Prefs.setBackgroundLoading(this, false)
+        Prefs.setBackgroundLoading(this, false, false)
+        Prefs.setBackgroundLoading(this, true, false)
         hideBackgroundViews()
         val n = Prefs.getBackgroundFailCount(this) + 1
         if (n >= MAX_BG_FAILS) {
@@ -823,8 +860,10 @@ class MainActivity : Activity() {
         }
     }
 
+    /** 設定が表示でも、ウィジェットが0個なら領域を出さない（グリッドを広く使う） */
     private fun applyWidgetVisibility() {
-        widgetScroll.visibility = if (Prefs.getWidgetPanelVisible(this)) View.VISIBLE else View.GONE
+        val show = Prefs.getWidgetPanelVisible(this) && !widgetPanel.isEmpty
+        widgetScroll.visibility = if (show) View.VISIBLE else View.GONE
     }
 
     /** 自動ON時、グリッドの実幅とアイコンの大きさから列数を決める（最低3） */
@@ -955,9 +994,11 @@ class MainActivity : Activity() {
     }
 
     companion object {
-        private const val MIN_COLUMNS = 4
+        private const val MIN_COLUMNS = 3
         private const val MAX_COLUMNS = 7
         private const val MIN_AUTO_COLUMNS = 3
+        private const val DOCK_ICON_MAX_DP = 72
+        private const val DOCK_ITEM_EXTRA_DP = 20
         private const val DEFAULT_AUTO_COLUMNS = 4
         private const val CELL_MARGIN_DP = 32
         private const val MENU_GROUP_EDIT = 20
@@ -980,6 +1021,7 @@ class MainActivity : Activity() {
         private const val BG_BASE_NAME = "background"
         private const val BG_TMP_NAME = "background_tmp"
         private const val BG_POSTER_NAME = "background_poster.jpg"
+        private const val BG_POSTER_NEW_NAME = "background_poster_new.jpg"
         private const val MAX_BG_FAILS = 3
         private val VIDEO_EXTS = setOf("mp4", "mkv", "webm", "3gp", "mov")
     }

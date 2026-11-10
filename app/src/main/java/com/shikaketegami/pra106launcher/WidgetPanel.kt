@@ -6,8 +6,11 @@ import android.appwidget.AppWidgetHostView
 import android.appwidget.AppWidgetManager
 import android.appwidget.AppWidgetProviderInfo
 import android.content.Context
+import android.content.ComponentName
 import android.content.Intent
 import android.graphics.Color
+import android.os.SystemClock
+import android.view.Gravity
 import android.view.MotionEvent
 import android.view.View
 import android.view.ViewConfiguration
@@ -40,6 +43,38 @@ class WidgetPanel(private val activity: Activity, private val container: LinearL
     private var pendingId = -1
     private var pendingProvider: AppWidgetProviderInfo? = null
 
+    /** 追加・削除のたびに呼ばれる（使わなくてもよい）。 */
+    var onChanged: (() -> Unit)? = null
+
+    private val pendingPrefs by lazy { activity.getSharedPreferences("widget_pending", Context.MODE_PRIVATE) }
+
+    private fun savePending() {
+        try {
+            pendingPrefs.edit()
+                .putInt("id", pendingId)
+                .putString("provider", pendingProvider?.provider?.flattenToString())
+                .apply()
+        } catch (e: Exception) { }
+    }
+
+    private fun clearPending() {
+        pendingId = -1
+        pendingProvider = null
+        try { pendingPrefs.edit().clear().apply() } catch (e: Exception) { }
+    }
+
+    /** Activity 再生成で失われた追加途中の状態を復元する。 */
+    private fun restorePending() {
+        if (pendingId >= 0) return
+        try {
+            val id = pendingPrefs.getInt("id", -1)
+            if (id < 0) return
+            pendingId = id
+            val cn = pendingPrefs.getString("provider", null)?.let { ComponentName.unflattenFromString(it) }
+            if (cn != null) pendingProvider = manager.installedProviders.firstOrNull { it.provider == cn }
+        } catch (e: Exception) { }
+    }
+
     val isEmpty: Boolean get() = items.isEmpty()
 
     fun start() {
@@ -58,15 +93,8 @@ class WidgetPanel(private val activity: Activity, private val container: LinearL
 
     private fun restore() {
         items.clear()
-        var broken = false
-        for ((id, h) in Prefs.getWidgets(activity)) {
-            val ok = try { manager.getAppWidgetInfo(id) != null } catch (e: Exception) { false }
-            if (ok) items.add(id to h.coerceIn(MIN_H, MAX_H)) else {
-                broken = true
-                try { host.deleteAppWidgetId(id) } catch (e: Exception) { }
-            }
-        }
-        if (broken) save()
+        // 一時的に読み込めないだけの場合があるので、ここでは削除しない（削除は長押しメニューから）
+        for ((id, h) in Prefs.getWidgets(activity)) items.add(id to h.coerceIn(MIN_H, MAX_H))
         render()
     }
 
@@ -106,6 +134,7 @@ class WidgetPanel(private val activity: Activity, private val container: LinearL
             val id = host.allocateAppWidgetId()
             pendingId = id
             pendingProvider = provider
+            savePending()
             if (manager.bindAppWidgetIdIfAllowed(id, provider.provider)) {
                 afterBind()
             } else {
@@ -135,24 +164,35 @@ class WidgetPanel(private val activity: Activity, private val container: LinearL
     private fun finishAdd() {
         val id = pendingId
         val p = pendingProvider
-        pendingId = -1
-        pendingProvider = null
+        clearPending()
         if (id < 0) return
+        if (items.any { it.first == id }) return
         val minH = p?.minHeight ?: 0
         val h = (minH / activity.resources.displayMetrics.density).roundToInt().coerceIn(MIN_H, MAX_H)
         items.add(id to h)
         save()
         render()
+        onChanged?.invoke()
     }
 
     private fun cancelPending() {
         val id = pendingId
-        pendingId = -1
-        pendingProvider = null
+        clearPending()
         if (id >= 0) try { host.deleteAppWidgetId(id) } catch (e: Exception) { }
     }
 
     fun handleActivityResult(requestCode: Int, resultCode: Int, data: Intent?): Boolean {
+        if (requestCode == REQ_BIND || requestCode == REQ_CONFIGURE) {
+            restorePending()
+            if (pendingId < 0) {
+                // 状態が失われていても、結果にウィジェットIDがあればそれで続行する
+                val rid = data?.getIntExtra(AppWidgetManager.EXTRA_APPWIDGET_ID, -1) ?: -1
+                if (rid >= 0) {
+                    pendingId = rid
+                    savePending()
+                }
+            }
+        }
         return when (requestCode) {
             REQ_BIND -> {
                 if (resultCode == Activity.RESULT_OK) afterBind() else cancelPending()
@@ -182,24 +222,34 @@ class WidgetPanel(private val activity: Activity, private val container: LinearL
             })
             return
         }
-        val broken = mutableListOf<Int>()
         for ((id, h) in items.toList()) {
-            val card = try { buildCard(id, h) } catch (e: Exception) { null }
-            if (card == null) broken.add(id) else container.addView(card)
-        }
-        if (broken.isNotEmpty()) {
-            for (id in broken) {
-                try { host.deleteAppWidgetId(id) } catch (e: Exception) { }
-                views.remove(id)
-            }
-            items.removeAll { it.first in broken }
-            save()
-            if (items.isEmpty()) render()
+            val card = try { buildCard(id, h) } catch (e: Exception) { null } ?: buildPlaceholder(id, h)
+            container.addView(card)
         }
     }
 
+    private fun cardParams(heightDp: Int) = LinearLayout.LayoutParams(
+        ViewGroup.LayoutParams.MATCH_PARENT, dp(heightDp)
+    ).apply { setMargins(dp(8), dp(8), dp(8), dp(8)) }
+
+    /** 読み込めないウィジェットの代わりに出すカード。保存データは消さず、長押しメニューで削除できる。 */
+    private fun buildPlaceholder(id: Int, heightDp: Int): View {
+        val card = LongPressFrame(activity) { showMenu(id) }.apply {
+            background = activity.getDrawable(R.drawable.widget_card_bg)
+            layoutParams = cardParams(heightDp)
+        }
+        card.addView(TextView(activity).apply {
+            setText(R.string.widget_unavailable)
+            setTextColor(Color.parseColor("#80FFFFFF"))
+            textSize = 13f
+            gravity = Gravity.CENTER
+        }, FrameLayout.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
+        return card
+    }
+
     private fun buildCard(id: Int, heightDp: Int): View? {
-        val info = manager.getAppWidgetInfo(id) ?: return null
+        val info = manager.getAppWidgetInfo(id) ?: run { views.remove(id); return null }
         val hv = views.getOrPut(id) { host.createView(activity, id, info) }
         (hv.parent as? ViewGroup)?.removeView(hv)
         hv.setAppWidget(id, info)
@@ -207,13 +257,15 @@ class WidgetPanel(private val activity: Activity, private val container: LinearL
         val card = LongPressFrame(activity) { showMenu(id) }.apply {
             background = activity.getDrawable(R.drawable.widget_card_bg)
             clipToOutline = true
-            layoutParams = LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, dp(heightDp)
-            ).apply { setMargins(dp(8), dp(8), dp(8), dp(8)) }
+            layoutParams = cardParams(heightDp)
+            var lastW = -1
+            var lastH = -1
             addOnLayoutChangeListener { _, l, t, r, b, _, _, _, _ ->
                 val wDp = ((r - l) / activity.resources.displayMetrics.density).toInt()
                 val hDp = ((b - t) / activity.resources.displayMetrics.density).toInt()
-                if (wDp > 0 && hDp > 0) {
+                if (wDp > 0 && hDp > 0 && (wDp != lastW || hDp != lastH)) {
+                    lastW = wDp
+                    lastH = hDp
                     try { hv.updateAppWidgetSize(null, wDp, hDp, wDp, hDp) } catch (e: Exception) { }
                 }
             }
@@ -274,6 +326,7 @@ class WidgetPanel(private val activity: Activity, private val container: LinearL
         items.removeAll { it.first == id }
         save()
         render()
+        onChanged?.invoke()
     }
 
     /** 子（AppWidgetHostView）が長押しを奪うため、dispatchTouchEvent で全イベントを見て長押しを検知する。 */
@@ -281,12 +334,31 @@ class WidgetPanel(private val activity: Activity, private val container: LinearL
         private val slop = ViewConfiguration.get(context).scaledTouchSlop
         private var downX = 0f
         private var downY = 0f
+        private var consumed = false
         private val fire = Runnable {
             performHapticFeedback(HapticFeedback_LONG)
+            // 子のタップが発火しないよう、先にキャンセルを送る
+            consumed = true
+            cancelChildren()
             onLong()
         }
 
+        private fun cancelChildren() {
+            val now = SystemClock.uptimeMillis()
+            val c = MotionEvent.obtain(now, now, MotionEvent.ACTION_CANCEL, downX, downY, 0)
+            try { super.dispatchTouchEvent(c) } catch (e: Exception) { }
+            c.recycle()
+        }
+
         override fun dispatchTouchEvent(ev: MotionEvent): Boolean {
+            if (ev.actionMasked == MotionEvent.ACTION_DOWN) consumed = false
+            if (consumed) {
+                // 長押し発火後は、指が離れるまで子にイベントを渡さない
+                if (ev.actionMasked == MotionEvent.ACTION_UP || ev.actionMasked == MotionEvent.ACTION_CANCEL) {
+                    consumed = false
+                }
+                return true
+            }
             when (ev.actionMasked) {
                 MotionEvent.ACTION_DOWN -> {
                     downX = ev.x; downY = ev.y

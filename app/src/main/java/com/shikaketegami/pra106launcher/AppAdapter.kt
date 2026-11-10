@@ -40,6 +40,12 @@ class AppAdapter(
     /** アイコンの倍率（ドックは 0.85） */
     var iconScale: Float = 1f
 
+    /** アイコンの上限(dp)。0 以下なら上限なし（ドックは 72） */
+    var iconMaxDp: Int = 0
+
+    /** 0 より大きいとき、項目の幅を「アイコン + この値(dp)」に動的設定する（ドック用） */
+    var itemExtraWidthDp: Int = 0
+
     class ViewHolder(view: View) : RecyclerView.ViewHolder(view) {
         val icon: ImageView = view.findViewById(R.id.appIcon)
         val label: TextView? = view.findViewById(R.id.appLabel)
@@ -71,7 +77,14 @@ class AppAdapter(
         holder.icon.contentDescription = app.label
         holder.label?.text = app.label
         val density = holder.itemView.resources.displayMetrics.density
-        val px = (iconSizeDp * iconScale * density).toInt()
+        var iconDp = iconSizeDp * iconScale
+        if (iconMaxDp > 0) iconDp = minOf(iconDp, iconMaxDp.toFloat())
+        val px = (iconDp * density).toInt()
+        if (itemExtraWidthDp > 0) {
+            holder.itemView.layoutParams = holder.itemView.layoutParams.apply {
+                width = ((iconDp + itemExtraWidthDp) * density).toInt()
+            }
+        }
         holder.icon.layoutParams = holder.icon.layoutParams.apply {
             width = px
             height = px
@@ -94,7 +107,7 @@ class AppAdapter(
     override fun getItemCount(): Int = apps.size
 
     private fun labelSp(dp: Int): Float = when {
-        dp <= 48 -> 11f
+        dp <= 48 -> 12f
         dp <= 64 -> 13f
         dp <= 80 -> 14f
         else -> 16f

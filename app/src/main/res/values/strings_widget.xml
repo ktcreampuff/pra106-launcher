@@ -9,4 +9,5 @@
     <string name="widget_menu_move_down">下へ移動</string>
     <string name="widget_menu_delete">削除</string>
     <string name="widget_cancel">キャンセル</string>
+    <string name="widget_unavailable">読み込めません（長押しで削除）</string>
 </resources>

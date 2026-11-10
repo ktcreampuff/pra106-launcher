@@ -52,10 +52,17 @@ object Prefs {
     fun setBackground(c: Context, uri: String?, isVideo: Boolean) =
         sp(c).edit().putString("background_uri", uri).putBoolean("background_is_video", isVideo).apply()
 
-    /** 背景の読み込み中フラグ（起動時に残っていたら前回クラッシュ等で落ちたと判断する） */
-    fun getBackgroundLoading(c: Context): Boolean = sp(c).getBoolean("background_loading", false)
-    fun setBackgroundLoading(c: Context, on: Boolean) =
-        sp(c).edit().putBoolean("background_loading", on).commit().let { }
+    /**
+     * 背景の読み込み中フラグ（画像用・動画用で別キー）。起動時に残っていたら前回落ちたと判断する。
+     * 通常は apply()。プロセス死亡の検知に必要な「動画準備開始」だけ sync=true（commit）で書く。
+     */
+    fun getBackgroundLoading(c: Context, video: Boolean): Boolean =
+        sp(c).getBoolean(if (video) "background_loading_video" else "background_loading_image", false)
+
+    fun setBackgroundLoading(c: Context, video: Boolean, on: Boolean, sync: Boolean = false) {
+        val e = sp(c).edit().putBoolean(if (video) "background_loading_video" else "background_loading_image", on)
+        if (sync) e.commit() else e.apply()
+    }
 
     /** 背景の連続読み込み失敗回数（成功でリセット） */
     fun getBackgroundFailCount(c: Context): Int = sp(c).getInt("background_fail_count", 0)
