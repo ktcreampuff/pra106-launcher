@@ -63,6 +63,8 @@ class MainActivity : Activity() {
     private lateinit var bgImage: ImageView
     private lateinit var bgScrim: View
     private lateinit var widgetScroll: View
+    private var importingBackground = false
+    private val loadSeq = java.util.concurrent.atomic.AtomicInteger(0)
     private lateinit var widgetPanel: WidgetPanel
 
     // 背景動画の再生状態
@@ -127,7 +129,12 @@ class MainActivity : Activity() {
         bgScrim = findViewById(R.id.bgScrim)
         widgetScroll = findViewById(R.id.widgetScroll)
         widgetPanel = WidgetPanel(this, findViewById<LinearLayout>(R.id.widgetContainer))
-        widgetPanel.onChanged = { applyWidgetVisibility() }
+        widgetPanel.onChanged = {
+            // 追加が完了したので、ここで初めて「表示」設定にする
+            if (!widgetPanel.isEmpty) Prefs.setWidgetPanelVisible(this, true)
+            applyWidgetVisibility()
+        }
+        widgetPanel.onCancelled = { applyWidgetVisibility() }
         bgVideo.surfaceTextureListener = object : TextureView.SurfaceTextureListener {
             override fun onSurfaceTextureAvailable(st: SurfaceTexture, width: Int, height: Int) {
                 if (started && player == null && bgFailedGen != bgGeneration && videoActive()) startVideo(st)
@@ -396,8 +403,7 @@ class MainActivity : Activity() {
                 MENU_COLUMNS -> showColumnsDialog()
                 MENU_ICON_SIZE -> showIconSizeDialog()
                 MENU_WIDGET_ADD -> {
-                    // 空でも追加操作の間は領域を出す（結果が返ったら applyWidgetVisibility で再判定）
-                    Prefs.setWidgetPanelVisible(this, true)
+                    // 空でも追加操作の間は領域を一時表示する（Prefs は書き換えず、結果が返ったら再判定）
                     widgetScroll.visibility = View.VISIBLE
                     widgetPanel.addWidget()
                 }
@@ -454,6 +460,11 @@ class MainActivity : Activity() {
      * 動画ならポスター画像も作る。コピーはIOスレッドで行い、失敗しても既存の設定は変えない。
      */
     private fun importBackground(uri: Uri) {
+        if (importingBackground) {
+            Toast.makeText(this, R.string.home_background_importing_busy, Toast.LENGTH_SHORT).show()
+            return
+        }
+        importingBackground = true
         Toast.makeText(this, R.string.home_background_importing, Toast.LENGTH_SHORT).show()
         val app = applicationContext
         val mime = contentResolver.getType(uri)
@@ -494,15 +505,23 @@ class MainActivity : Activity() {
             }
             if (ok && dest != null) {
                 // 旧ファイル（旧ポスター含む）を消し、新しいポスターを正式名にしてから設定を切り替える
-                deleteBackgroundFiles(dir, setOf(dest.name, BG_POSTER_NEW_NAME))
-                if (posterNew.exists()) posterNew.renameTo(File(dir, BG_POSTER_NAME))
+                // 先に設定を新ファイルへ切り替えてから、旧ファイルを消す
+                val oldPoster = File(dir, BG_POSTER_NAME)
+                if (posterNew.exists()) {
+                    oldPoster.delete()
+                    posterNew.renameTo(oldPoster)
+                } else {
+                    oldPoster.delete()
+                }
                 Prefs.setBackground(app, "file://" + dest.absolutePath, isVideo)
                 Prefs.setBackgroundFailCount(app, 0)
+                deleteBackgroundFiles(dir, setOf(dest.name, BG_POSTER_NAME))
             } else {
                 tmp.delete()
                 posterNew.delete()
             }
             handler.post {
+                importingBackground = false
                 if (ok) {
                     Toast.makeText(app, R.string.home_background_set_done, Toast.LENGTH_SHORT).show()
                     if (highRes) Toast.makeText(app, R.string.home_background_high_res, Toast.LENGTH_LONG).show()
@@ -621,7 +640,9 @@ class MainActivity : Activity() {
         val reqH = dm.heightPixels
         val app = applicationContext
         // ポスターのデコードではフラグを立てない（画像用フラグのみ）
-        if (!poster) Prefs.setBackgroundLoading(app, false, true)
+        val myLoad = loadSeq.incrementAndGet()
+        // ポスター読み込みは旧画像読み込みを置き換えるので、旧スレッドが下ろさない分をここで下ろす
+        Prefs.setBackgroundLoading(app, false, !poster)
         Thread {
             var bmp: Bitmap? = null
             try {
@@ -629,10 +650,11 @@ class MainActivity : Activity() {
             } catch (e: Throwable) {
                 bmp = null
             }
-            if (!poster) Prefs.setBackgroundLoading(app, false, false)
+            // 自分が最新の読み込みのときだけフラグを下ろす
+            if (!poster && myLoad == loadSeq.get()) Prefs.setBackgroundLoading(app, false, false)
             val result = bmp
             handler.post {
-                if (isDestroyed || gen != bgGeneration) return@post
+                if (isDestroyed || gen != bgGeneration || myLoad != loadSeq.get()) return@post
                 if (result == null) {
                     if (!poster) onBackgroundFailed()
                 } else {

@@ -46,6 +46,11 @@ class WidgetPanel(private val activity: Activity, private val container: LinearL
     /** 追加・削除のたびに呼ばれる（使わなくてもよい）。 */
     var onChanged: (() -> Unit)? = null
 
+    /** 追加操作が（選択ダイアログのキャンセル、バインド／設定のキャンセルや失敗で）完了せず終わったときに呼ばれる。 */
+    var onCancelled: (() -> Unit)? = null
+
+    private var hasPlaceholder = false
+
     private val pendingPrefs by lazy { activity.getSharedPreferences("widget_pending", Context.MODE_PRIVATE) }
 
     private fun savePending() {
@@ -82,6 +87,9 @@ class WidgetPanel(private val activity: Activity, private val container: LinearL
         if (!restored) {
             restored = true
             restore()
+        } else if (hasPlaceholder) {
+            // 起動直後に読めなかったウィジェットを、再開のたびに読み直す
+            render()
         }
     }
 
@@ -118,15 +126,19 @@ class WidgetPanel(private val activity: Activity, private val container: LinearL
                 AlertDialog.Builder(activity)
                     .setTitle(R.string.widget_pick_title)
                     .setMessage(R.string.widget_pick_none)
-                    .setPositiveButton(android.R.string.ok, null).show()
+                    .setPositiveButton(android.R.string.ok, null)
+                    .setOnCancelListener { onCancelled?.invoke() }
+                    .setOnDismissListener { onCancelled?.invoke() }
+                    .show()
                 return
             }
             AlertDialog.Builder(activity)
                 .setTitle(R.string.widget_pick_title)
                 .setItems(list.map { it.second }.toTypedArray()) { _, which -> begin(list[which].first) }
-                .setNegativeButton(R.string.widget_cancel, null)
+                .setNegativeButton(R.string.widget_cancel) { _, _ -> onCancelled?.invoke() }
+                .setOnCancelListener { onCancelled?.invoke() }
                 .show()
-        } catch (e: Exception) { }
+        } catch (e: Exception) { onCancelled?.invoke() }
     }
 
     private fun begin(provider: AppWidgetProviderInfo) {
@@ -179,6 +191,7 @@ class WidgetPanel(private val activity: Activity, private val container: LinearL
         val id = pendingId
         clearPending()
         if (id >= 0) try { host.deleteAppWidgetId(id) } catch (e: Exception) { }
+        onCancelled?.invoke()
     }
 
     fun handleActivityResult(requestCode: Int, resultCode: Int, data: Intent?): Boolean {
@@ -213,6 +226,7 @@ class WidgetPanel(private val activity: Activity, private val container: LinearL
 
     private fun render() {
         container.removeAllViews()
+        hasPlaceholder = false
         if (items.isEmpty()) {
             container.addView(TextView(activity).apply {
                 setText(R.string.widget_empty_hint)
@@ -223,7 +237,7 @@ class WidgetPanel(private val activity: Activity, private val container: LinearL
             return
         }
         for ((id, h) in items.toList()) {
-            val card = try { buildCard(id, h) } catch (e: Exception) { null } ?: buildPlaceholder(id, h)
+            val card = try { buildCard(id, h) } catch (e: Exception) { null } ?: run { hasPlaceholder = true; buildPlaceholder(id, h) }
             container.addView(card)
         }
     }

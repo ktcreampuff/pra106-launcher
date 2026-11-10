@@ -22,6 +22,7 @@
     <string name="home_menu_clear_background">背景を解除</string>
     <string name="home_background_open_failed">背景ファイルを開けませんでした</string>
     <string name="home_background_importing">背景を取り込み中…</string>
+    <string name="home_background_importing_busy">取り込み中です</string>
     <string name="home_background_set_done">背景を設定しました</string>
     <string name="home_background_import_failed">背景を取り込めませんでした</string>
     <string name="home_background_crash_disabled">前回、背景の読み込みに失敗したため背景を無効にしました</string>
