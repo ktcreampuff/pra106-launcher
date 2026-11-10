@@ -24,6 +24,7 @@ import android.os.IBinder
 import android.os.Looper
 import android.provider.Settings
 import android.view.Gravity
+import android.view.View
 import android.view.LayoutInflater
 import android.view.WindowManager
 import android.widget.ImageView
@@ -156,16 +157,16 @@ class StatusBarService : Service() {
     }
 
     private fun setupButtons(view: android.view.View) {
-        view.findViewById<ImageView>(R.id.btnBack).setOnClickListener {
+        view.findViewById<View>(R.id.btnBack).setOnClickListener {
             if (requireAccessibility()) LauncherAccessibilityService.performBack()
         }
-        val home = view.findViewById<ImageView>(R.id.btnHome)
+        val home = view.findViewById<View>(R.id.btnHome)
         home.setOnClickListener { goHomeOrAppTop() }
         home.setOnLongClickListener {
             openLauncherTop()
             true
         }
-        val prev = view.findViewById<ImageView>(R.id.btnPrevApp)
+        val prev = view.findViewById<View>(R.id.btnPrevApp)
         prev.setOnClickListener {
             if (requireAccessibility() && !LauncherAccessibilityService.launchPreviousApp()) {
                 toast(R.string.bar_no_prev_app)
@@ -176,7 +177,7 @@ class StatusBarService : Service() {
             true
         }
 
-        view.findViewById<TextView>(R.id.btnSkip).setOnClickListener {
+        view.findViewById<View>(R.id.btnSkip).setOnClickListener {
             val next = !Prefs.autoSkipEnabled
             Prefs.setAutoSkip(this, next)
             updateSkipButton(view)
@@ -184,9 +185,9 @@ class StatusBarService : Service() {
         }
         updateSkipButton(view)
 
-        view.findViewById<ImageView>(R.id.btnWifi).setOnClickListener { rescanWifi() }
+        view.findViewById<View>(R.id.btnWifi).setOnClickListener { rescanWifi() }
 
-        view.findViewById<ImageView>(R.id.iconBluetooth).setOnClickListener {
+        view.findViewById<View>(R.id.iconBluetooth).setOnClickListener {
             try {
                 startActivity(
                     Intent(Settings.ACTION_BLUETOOTH_SETTINGS).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
@@ -281,11 +282,11 @@ class StatusBarService : Service() {
     }
 
     private fun setWifiIconConnected(connected: Boolean) {
-        overlayView?.findViewById<ImageView>(R.id.btnWifi)?.alpha = if (connected) 1.0f else 0.35f
+        overlayView?.findViewById<View>(R.id.btnWifi)?.alpha = if (connected) 1.0f else 0.35f
     }
 
     private fun updateSkipButton(view: android.view.View) {
-        val btn = view.findViewById<TextView>(R.id.btnSkip)
+        val btn = view.findViewById<View>(R.id.skipDot)
         btn.setBackgroundResource(
             if (Prefs.autoSkipEnabled) R.drawable.bar_skip_on else R.drawable.bar_skip_off
         )
@@ -300,7 +301,7 @@ class StatusBarService : Service() {
 
     @SuppressLint("MissingPermission")
     private fun updateBluetoothIcon(view: android.view.View) {
-        val icon = view.findViewById<ImageView>(R.id.iconBluetooth)
+        val icon = view.findViewById<View>(R.id.iconBluetooth)
         val on = try {
             val manager = getSystemService(Context.BLUETOOTH_SERVICE) as? BluetoothManager
             manager?.adapter?.isEnabled == true

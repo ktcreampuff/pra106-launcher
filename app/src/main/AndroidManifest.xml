@@ -63,6 +63,18 @@
                 android:resource="@xml/accessibility_service_config" />
         </service>
 
+        <!-- クイック設定パネルの「純正ホーム」タイル -->
+        <service
+            android:name=".NativeHomeTileService"
+            android:exported="true"
+            android:icon="@drawable/tile_ic_home"
+            android:label="@string/home_native_home_btn"
+            android:permission="android.permission.BIND_QUICK_SETTINGS_TILE">
+            <intent-filter>
+                <action android:name="android.service.quicksettings.action.QS_TILE" />
+            </intent-filter>
+        </service>
+
         <receiver
             android:name=".BootReceiver"
             android:exported="true">

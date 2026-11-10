@@ -64,6 +64,7 @@
 
     <TextView
         android:id="@+id/nativeHomeButton"
+        android:visibility="gone"
         android:layout_width="wrap_content"
         android:layout_height="44dp"
         android:layout_gravity="top|end"

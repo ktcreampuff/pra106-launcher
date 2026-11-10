@@ -1,18 +1,19 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!-- 操作ボタンは運転席側（右）。各ボタンはアイコン＋小さな文字ラベル -->
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
-    android:layout_height="36dp"
+    android:layout_height="44dp"
     android:background="#E6000000"
     android:orientation="horizontal"
     android:gravity="center_vertical"
     android:paddingStart="12dp"
-    android:paddingEnd="8dp">
+    android:paddingEnd="6dp">
 
     <TextView
         android:id="@+id/clock"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
-        android:textColor="#FFFFFF"
+        android:textColor="#E5E5E5"
         android:textSize="14sp"
         android:text="00:00" />
 
@@ -21,79 +22,140 @@
         android:layout_height="match_parent"
         android:layout_weight="1" />
 
-    <ImageView
+    <LinearLayout
         android:id="@+id/btnWifi"
-        android:layout_width="32dp"
-        android:layout_height="32dp"
-        android:layout_marginStart="0dp"
-        android:padding="6dp"
+        android:layout_width="wrap_content"
+        android:layout_height="match_parent"
+        android:minWidth="48dp"
+        android:orientation="vertical"
+        android:gravity="center"
+        android:paddingStart="6dp"
+        android:paddingEnd="6dp"
+        android:background="?android:attr/selectableItemBackground"
         android:clickable="true"
         android:focusable="false"
-        android:src="@drawable/bar_ic_wifi"
         android:alpha="0.35"
-        android:contentDescription="@string/bar_wifi" />
+        android:contentDescription="@string/bar_wifi">
+        <ImageView android:layout_width="20dp" android:layout_height="20dp" android:src="@drawable/bar_ic_wifi" android:importantForAccessibility="no" />
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="Wi-Fi"
+            android:textColor="#A3A3A3"
+            android:textSize="9sp" />
+    </LinearLayout>
 
-    <ImageView
+    <LinearLayout
         android:id="@+id/iconBluetooth"
-        android:layout_width="32dp"
-        android:layout_height="32dp"
-        android:layout_marginStart="4dp"
-        android:padding="6dp"
+        android:layout_width="wrap_content"
+        android:layout_height="match_parent"
+        android:minWidth="48dp"
+        android:orientation="vertical"
+        android:gravity="center"
+        android:paddingStart="6dp"
+        android:paddingEnd="6dp"
+        android:background="?android:attr/selectableItemBackground"
         android:clickable="true"
         android:focusable="false"
-        android:src="@drawable/bar_ic_bluetooth"
         android:alpha="0.35"
-        android:contentDescription="@string/bar_bluetooth" />
+        android:contentDescription="@string/bar_bluetooth">
+        <ImageView android:layout_width="20dp" android:layout_height="20dp" android:src="@drawable/bar_ic_bluetooth" android:importantForAccessibility="no" />
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="Bluetooth"
+            android:textColor="#A3A3A3"
+            android:textSize="9sp" />
+    </LinearLayout>
 
-    <TextView
+    <LinearLayout
         android:id="@+id/btnSkip"
         android:layout_width="wrap_content"
-        android:layout_height="32dp"
-        android:layout_marginStart="4dp"
+        android:layout_height="match_parent"
         android:minWidth="48dp"
+        android:orientation="vertical"
         android:gravity="center"
-        android:paddingStart="8dp"
-        android:paddingEnd="8dp"
+        android:paddingStart="6dp"
+        android:paddingEnd="6dp"
+        android:background="?android:attr/selectableItemBackground"
         android:clickable="true"
         android:focusable="false"
-        android:text="@string/bar_skip"
-        android:textColor="#FFFFFF"
-        android:textSize="13sp"
-        android:textStyle="bold"
-        android:background="@drawable/bar_skip_off"
-        android:contentDescription="@string/bar_skip_desc" />
+        android:contentDescription="@string/bar_skip_desc">
+        <View android:id="@+id/skipDot" android:layout_width="16dp" android:layout_height="16dp" android:layout_marginTop="2dp" android:layout_marginBottom="2dp" android:background="@drawable/bar_skip_off" />
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="SKIP"
+            android:textColor="#A3A3A3"
+            android:textSize="9sp" />
+    </LinearLayout>
 
-    <ImageView
+    <View android:layout_width="1dp" android:layout_height="24dp" android:layout_marginStart="4dp" android:layout_marginEnd="4dp" android:background="#333333" />
+
+    <LinearLayout
         android:id="@+id/btnPrevApp"
-        android:layout_width="32dp"
-        android:layout_height="32dp"
-        android:layout_marginStart="4dp"
-        android:padding="6dp"
+        android:layout_width="wrap_content"
+        android:layout_height="match_parent"
+        android:minWidth="48dp"
+        android:orientation="vertical"
+        android:gravity="center"
+        android:paddingStart="6dp"
+        android:paddingEnd="6dp"
+        android:background="?android:attr/selectableItemBackground"
         android:clickable="true"
         android:focusable="false"
-        android:src="@drawable/bar_ic_prev"
-        android:contentDescription="@string/bar_prev_app" />
+        android:contentDescription="@string/bar_prev_app">
+        <ImageView android:layout_width="20dp" android:layout_height="20dp" android:src="@drawable/bar_ic_prev" android:importantForAccessibility="no" />
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="前のアプリ"
+            android:textColor="#A3A3A3"
+            android:textSize="9sp" />
+    </LinearLayout>
 
-    <ImageView
+    <LinearLayout
         android:id="@+id/btnHome"
-        android:layout_width="32dp"
-        android:layout_height="32dp"
-        android:layout_marginStart="4dp"
-        android:padding="6dp"
+        android:layout_width="wrap_content"
+        android:layout_height="match_parent"
+        android:minWidth="48dp"
+        android:orientation="vertical"
+        android:gravity="center"
+        android:paddingStart="6dp"
+        android:paddingEnd="6dp"
+        android:background="?android:attr/selectableItemBackground"
         android:clickable="true"
         android:focusable="false"
-        android:src="@drawable/bar_ic_home"
-        android:contentDescription="@string/bar_home" />
+        android:contentDescription="@string/bar_home">
+        <ImageView android:layout_width="20dp" android:layout_height="20dp" android:src="@drawable/bar_ic_home" android:importantForAccessibility="no" />
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="ホーム"
+            android:textColor="#A3A3A3"
+            android:textSize="9sp" />
+    </LinearLayout>
 
-    <ImageView
+    <LinearLayout
         android:id="@+id/btnBack"
-        android:layout_width="32dp"
-        android:layout_height="32dp"
-        android:layout_marginStart="4dp"
-        android:padding="6dp"
+        android:layout_width="wrap_content"
+        android:layout_height="match_parent"
+        android:minWidth="48dp"
+        android:orientation="vertical"
+        android:gravity="center"
+        android:paddingStart="6dp"
+        android:paddingEnd="6dp"
+        android:background="?android:attr/selectableItemBackground"
         android:clickable="true"
         android:focusable="false"
-        android:src="@drawable/bar_ic_back"
-        android:contentDescription="@string/bar_back" />
+        android:contentDescription="@string/bar_back">
+        <ImageView android:layout_width="20dp" android:layout_height="20dp" android:src="@drawable/bar_ic_back" android:importantForAccessibility="no" />
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="戻る"
+            android:textColor="#A3A3A3"
+            android:textSize="9sp" />
+    </LinearLayout>
 
 </LinearLayout>

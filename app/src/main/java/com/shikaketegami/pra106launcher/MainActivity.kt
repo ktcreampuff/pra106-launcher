@@ -167,7 +167,7 @@ class MainActivity : Activity() {
         dockAdapter.reorderMode = on
         reorderBar.visibility = if (on) View.VISIBLE else View.GONE
         settingsButton.visibility = if (on) View.INVISIBLE else View.VISIBLE
-        nativeHomeButton.visibility = if (on) View.INVISIBLE else View.VISIBLE
+        nativeHomeButton.visibility = View.GONE // 純正ホームはクイック設定タイルへ移動
     }
 
     private fun saveGridOrder() {
