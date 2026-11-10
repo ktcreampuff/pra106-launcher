@@ -50,6 +50,7 @@ class WidgetPanel(private val activity: Activity, private val container: LinearL
     var onCancelled: (() -> Unit)? = null
 
     private var hasPlaceholder = false
+    private val placeholderIds = mutableSetOf<Int>()
 
     private val pendingPrefs by lazy { activity.getSharedPreferences("widget_pending", Context.MODE_PRIVATE) }
 
@@ -88,8 +89,11 @@ class WidgetPanel(private val activity: Activity, private val container: LinearL
             restored = true
             restore()
         } else if (hasPlaceholder) {
-            // 起動直後に読めなかったウィジェットを、再開のたびに読み直す
-            render()
+            // 起動直後に読めなかったウィジェットが読めるようになったときだけ描き直す
+            val recovered = placeholderIds.any {
+                try { manager.getAppWidgetInfo(it) != null } catch (e: Exception) { false }
+            }
+            if (recovered) render()
         }
     }
 
@@ -177,8 +181,16 @@ class WidgetPanel(private val activity: Activity, private val container: LinearL
         val id = pendingId
         val p = pendingProvider
         clearPending()
-        if (id < 0) return
-        if (items.any { it.first == id }) return
+        if (id < 0) {
+            onCancelled?.invoke()
+            return
+        }
+        if (items.any { it.first == id }) {
+            // 重複IDは捨てる
+            try { host.deleteAppWidgetId(id) } catch (e: Exception) { }
+            onCancelled?.invoke()
+            return
+        }
         val minH = p?.minHeight ?: 0
         val h = (minH / activity.resources.displayMetrics.density).roundToInt().coerceIn(MIN_H, MAX_H)
         items.add(id to h)
@@ -227,6 +239,7 @@ class WidgetPanel(private val activity: Activity, private val container: LinearL
     private fun render() {
         container.removeAllViews()
         hasPlaceholder = false
+        placeholderIds.clear()
         if (items.isEmpty()) {
             container.addView(TextView(activity).apply {
                 setText(R.string.widget_empty_hint)
@@ -237,7 +250,7 @@ class WidgetPanel(private val activity: Activity, private val container: LinearL
             return
         }
         for ((id, h) in items.toList()) {
-            val card = try { buildCard(id, h) } catch (e: Exception) { null } ?: run { hasPlaceholder = true; buildPlaceholder(id, h) }
+            val card = try { buildCard(id, h) } catch (e: Exception) { null } ?: run { hasPlaceholder = true; placeholderIds.add(id); buildPlaceholder(id, h) }
             container.addView(card)
         }
     }

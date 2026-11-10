@@ -411,8 +411,10 @@ class MainActivity : Activity() {
                     Prefs.setWidgetPanelVisible(this, !Prefs.getWidgetPanelVisible(this))
                     applyWidgetVisibility()
                 }
-                MENU_SET_BG -> pickBackground()
-                MENU_CLEAR_BG -> {
+                MENU_SET_BG -> {
+                    if (importingBackground) busyToast() else pickBackground()
+                }
+                MENU_CLEAR_BG -> if (importingBackground) busyToast() else {
                     deleteBackgroundFiles()
                     Prefs.setBackground(this, null, false)
                     Prefs.setBackgroundFailCount(this, 0)
@@ -426,6 +428,10 @@ class MainActivity : Activity() {
             true
         }
         menu.show()
+    }
+
+    private fun busyToast() {
+        Toast.makeText(this, R.string.home_background_importing_busy, Toast.LENGTH_SHORT).show()
     }
 
     private fun pickBackground() {
@@ -456,7 +462,7 @@ class MainActivity : Activity() {
     }
 
     /**
-     * 選んだファイルを filesDir/background.<拡張子> へコピーして、以後はそのコピーだけを参照する。
+     * 選んだファイルを filesDir/background_<時刻>.<拡張子> へコピーして、以後はそのコピーだけを参照する。
      * 動画ならポスター画像も作る。コピーはIOスレッドで行い、失敗しても既存の設定は変えない。
      */
     private fun importBackground(uri: Uri) {
@@ -465,6 +471,8 @@ class MainActivity : Activity() {
             return
         }
         importingBackground = true
+        // 読み込み中の旧背景の結果を無効にする（世代を進める）
+        bgGeneration++
         Toast.makeText(this, R.string.home_background_importing, Toast.LENGTH_SHORT).show()
         val app = applicationContext
         val mime = contentResolver.getType(uri)
@@ -475,8 +483,8 @@ class MainActivity : Activity() {
             var isVideo = false
             var highRes = false
             var dest: File? = null
+            var poster: File? = null
             val tmp = File(dir, BG_TMP_NAME)
-            val posterNew = File(dir, BG_POSTER_NEW_NAME)
             try {
                 val name = try {
                     contentResolver.query(uri, arrayOf(OpenableColumns.DISPLAY_NAME), null, null, null)
@@ -494,40 +502,54 @@ class MainActivity : Activity() {
                 else if (isVideo) "mp4" else "jpg"
                 val input = contentResolver.openInputStream(uri) ?: throw IOException("open failed")
                 input.use { i -> FileOutputStream(tmp).use { o -> i.copyTo(o) } }
-                // 一時ファイル → rename の順。旧ファイルは rename 成功後に消す
-                val d = File(dir, "$BG_BASE_NAME.$ext")
+                // 新本体は旧本体と別名（タイムスタンプ付き）で保存し、旧ファイルを上書きしない
+                val d = File(dir, "${BG_BASE_NAME}_${System.currentTimeMillis()}.$ext")
                 if (!tmp.renameTo(d)) throw IOException("rename failed")
                 dest = d
-                if (isVideo) highRes = makePoster(d, posterNew, maxOf(dm.widthPixels, dm.heightPixels))
-                ok = true
-            } catch (e: Throwable) {
-                ok = false
-            }
-            if (ok && dest != null) {
-                // 旧ファイル（旧ポスター含む）を消し、新しいポスターを正式名にしてから設定を切り替える
-                // 先に設定を新ファイルへ切り替えてから、旧ファイルを消す
-                val oldPoster = File(dir, BG_POSTER_NAME)
-                if (posterNew.exists()) {
-                    oldPoster.delete()
-                    posterNew.renameTo(oldPoster)
-                } else {
-                    oldPoster.delete()
+                if (isVideo) {
+                    // ポスターも本体名から決まる別名で保存する（旧ポスターは触らない）
+                    val pf = File(dir, d.name + BG_POSTER_SUFFIX)
+                    poster = pf
+                    highRes = makePoster(d, pf, maxOf(dm.widthPixels, dm.heightPixels))
                 }
-                Prefs.setBackground(app, "file://" + dest.absolutePath, isVideo)
+                // 順序：設定を新ファイルへ切り替え → 旧ファイル（旧ポスター含む）を削除
+                Prefs.setBackground(app, "file://" + d.absolutePath, isVideo)
                 Prefs.setBackgroundFailCount(app, 0)
-                deleteBackgroundFiles(dir, setOf(dest.name, BG_POSTER_NAME))
-            } else {
-                tmp.delete()
-                posterNew.delete()
-            }
-            handler.post {
-                importingBackground = false
-                if (ok) {
-                    Toast.makeText(app, R.string.home_background_set_done, Toast.LENGTH_SHORT).show()
-                    if (highRes) Toast.makeText(app, R.string.home_background_high_res, Toast.LENGTH_LONG).show()
-                    if (!isDestroyed) applyBackground()
-                } else {
-                    Toast.makeText(app, R.string.home_background_import_failed, Toast.LENGTH_SHORT).show()
+                ok = true
+                val keep = HashSet<String>()
+                keep.add(d.name)
+                poster?.let { keep.add(it.name) }
+                deleteBackgroundFiles(dir, keep)
+            } catch (e: Throwable) {
+                // 切り替え後の旧ファイル削除で失敗しても、設定は新ファイルを指しているので成功扱い
+            } finally {
+                if (!ok) {
+                    try {
+                        tmp.delete()
+                        // 切り替え前に失敗した場合だけ新ファイルを消す（設定が新ファイルを指していれば残す）
+                        val cur = Prefs.getBackgroundUri(app)
+                        val d = dest
+                        if (d != null && cur != "file://" + d.absolutePath) {
+                            d.delete()
+                            poster?.delete()
+                        }
+                    } catch (e: Throwable) {
+                        // 無視
+                    }
+                }
+                val success = ok
+                val hr = highRes
+                handler.post {
+                    importingBackground = false
+                    if (success) {
+                        Toast.makeText(app, R.string.home_background_set_done, Toast.LENGTH_SHORT).show()
+                        if (hr) Toast.makeText(app, R.string.home_background_high_res, Toast.LENGTH_LONG).show()
+                        if (!isDestroyed) applyBackground()
+                    } else {
+                        Toast.makeText(app, R.string.home_background_import_failed, Toast.LENGTH_SHORT).show()
+                        // 失敗しても、中断していた既存背景の表示は戻す
+                        if (!isDestroyed) applyBackground()
+                    }
                 }
             }
         }.start()
@@ -609,7 +631,7 @@ class MainActivity : Activity() {
         bgScrim.visibility = View.VISIBLE
         if (Prefs.getBackgroundIsVideo(this)) {
             bgVideo.visibility = View.VISIBLE
-            val poster = File(file.parentFile, BG_POSTER_NAME)
+            val poster = File(file.parentFile, file.name + BG_POSTER_SUFFIX)
             if (poster.exists()) {
                 // 新しいポスターのデコードが終わるまで旧画像を残す
                 loadBackgroundImage(poster, true)
@@ -809,6 +831,8 @@ class MainActivity : Activity() {
      * Toast は1回だけ。連続3回失敗したら背景を解除する。
      */
     private fun onBackgroundFailed() {
+        // 背景の取り込み中は、旧背景の失敗で回数加算やToastをしない
+        if (importingBackground) return
         if (bgFailedGen == bgGeneration) return
         bgFailedGen = bgGeneration
         releasePlayer()
@@ -1042,8 +1066,7 @@ class MainActivity : Activity() {
         private const val REQUEST_BACKGROUND = 100
         private const val BG_BASE_NAME = "background"
         private const val BG_TMP_NAME = "background_tmp"
-        private const val BG_POSTER_NAME = "background_poster.jpg"
-        private const val BG_POSTER_NEW_NAME = "background_poster_new.jpg"
+        private const val BG_POSTER_SUFFIX = "_poster.jpg"
         private const val MAX_BG_FAILS = 3
         private val VIDEO_EXTS = setOf("mp4", "mkv", "webm", "3gp", "mov")
     }
