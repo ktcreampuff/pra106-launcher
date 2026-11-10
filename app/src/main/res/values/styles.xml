@@ -1,5 +1,5 @@
 <resources>
-    <style name="Theme.PRA106Launcher" parent="Theme.MaterialComponents.DayNight.NoActionBar">
+    <style name="Theme.PRA106Launcher" parent="Theme.MaterialComponents.NoActionBar">
         <item name="android:colorBackground">#121212</item>
         <item name="android:textColorPrimary">#FFFFFF</item>
         <item name="android:statusBarColor">#121212</item>

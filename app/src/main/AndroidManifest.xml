@@ -47,7 +47,7 @@
         </service>
 
         <service
-            android:name=".BackButtonAccessibilityService"
+            android:name=".LauncherAccessibilityService"
             android:exported="false"
             android:permission="android.permission.BIND_ACCESSIBILITY_SERVICE">
             <intent-filter>

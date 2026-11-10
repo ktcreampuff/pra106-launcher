@@ -1,8 +1,10 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!-- 前面アプリ追跡とAutoSkipのため、全アプリの画面内容を参照する -->
 <accessibility-service xmlns:android="http://schemas.android.com/apk/res/android"
-    android:accessibilityEventTypes="typeAllMask"
+    android:accessibilityEventTypes="typeWindowStateChanged|typeWindowContentChanged"
     android:accessibilityFeedbackType="feedbackGeneric"
-    android:canRetrieveWindowContent="false"
+    android:accessibilityFlags="flagReportViewIds|flagRetrieveInteractiveWindows"
+    android:canRetrieveWindowContent="true"
     android:canPerformGestures="true"
-    android:notificationTimeout="100"
-    android:description="@string/grant_accessibility_permission" />
+    android:notificationTimeout="300"
+    android:description="@string/accessibility_desc" />

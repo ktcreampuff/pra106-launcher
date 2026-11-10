@@ -4,26 +4,77 @@
     android:layout_height="match_parent"
     android:background="#121212">
 
-    <androidx.recyclerview.widget.RecyclerView
-        android:id="@+id/appGrid"
+    <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="match_parent"
-        android:clipToPadding="false"
-        android:paddingTop="56dp"
-        android:paddingBottom="16dp"
-        android:paddingStart="12dp"
-        android:paddingEnd="12dp" />
+        android:orientation="vertical">
+
+        <androidx.recyclerview.widget.RecyclerView
+            android:id="@+id/appGrid"
+            android:layout_width="match_parent"
+            android:layout_height="0dp"
+            android:layout_weight="1"
+            android:clipToPadding="false"
+            android:paddingTop="100dp"
+            android:paddingBottom="8dp"
+            android:paddingStart="12dp"
+            android:paddingEnd="12dp" />
+
+        <TextView
+            android:id="@+id/permissionBanner"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:background="#CC000000"
+            android:textColor="#FFFFFF"
+            android:padding="16dp"
+            android:textSize="14sp"
+            android:visibility="gone"
+            android:text="@string/grant_overlay_permission" />
+
+        <View
+            android:id="@+id/dockDivider"
+            android:layout_width="match_parent"
+            android:layout_height="1dp"
+            android:background="#33FFFFFF" />
+
+        <androidx.recyclerview.widget.RecyclerView
+            android:id="@+id/dockList"
+            android:layout_width="match_parent"
+            android:layout_height="88dp"
+            android:clipToPadding="false"
+            android:paddingStart="12dp"
+            android:paddingEnd="12dp" />
+    </LinearLayout>
 
     <TextView
-        android:id="@+id/permissionBanner"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:layout_gravity="bottom"
-        android:background="#CC000000"
+        android:id="@+id/settingsButton"
+        android:layout_width="64dp"
+        android:layout_height="44dp"
+        android:layout_gravity="top|end"
+        android:layout_marginTop="60dp"
+        android:layout_marginEnd="16dp"
+        android:background="@drawable/home_btn_bg"
+        android:clickable="true"
+        android:focusable="true"
+        android:contentDescription="@string/home_settings_desc"
+        android:gravity="center"
+        android:text="⋯"
         android:textColor="#FFFFFF"
-        android:padding="16dp"
-        android:textSize="14sp"
-        android:visibility="gone"
-        android:text="@string/grant_overlay_permission" />
+        android:textSize="26sp" />
+
+    <TextView
+        android:id="@+id/reorderBar"
+        android:layout_width="match_parent"
+        android:layout_height="48dp"
+        android:layout_gravity="top"
+        android:layout_marginTop="56dp"
+        android:background="@drawable/home_reorder_bar_bg"
+        android:clickable="true"
+        android:focusable="true"
+        android:gravity="center"
+        android:text="@string/home_reorder_bar"
+        android:textColor="#FFFFFF"
+        android:textSize="16sp"
+        android:visibility="gone" />
 
 </FrameLayout>

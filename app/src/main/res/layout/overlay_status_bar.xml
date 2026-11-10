@@ -5,38 +5,97 @@
     android:background="#E6000000"
     android:orientation="horizontal"
     android:gravity="center_vertical"
-    android:paddingStart="12dp"
+    android:paddingStart="8dp"
     android:paddingEnd="12dp">
 
-    <ImageButton
+    <ImageView
         android:id="@+id/btnBack"
         android:layout_width="32dp"
         android:layout_height="32dp"
-        android:background="@android:color/transparent"
-        android:src="@android:drawable/ic_menu_revert"
-        android:contentDescription="戻る" />
+        android:padding="6dp"
+        android:clickable="true"
+        android:focusable="false"
+        android:src="@drawable/bar_ic_back"
+        android:contentDescription="@string/bar_back" />
 
-    <ImageButton
+    <ImageView
         android:id="@+id/btnHome"
         android:layout_width="32dp"
         android:layout_height="32dp"
-        android:layout_marginStart="8dp"
-        android:background="@android:color/transparent"
-        android:src="@android:drawable/ic_menu_myplaces"
-        android:contentDescription="ホーム" />
+        android:layout_marginStart="4dp"
+        android:padding="6dp"
+        android:clickable="true"
+        android:focusable="false"
+        android:src="@drawable/bar_ic_home"
+        android:contentDescription="@string/bar_home" />
+
+    <ImageView
+        android:id="@+id/btnPrevApp"
+        android:layout_width="32dp"
+        android:layout_height="32dp"
+        android:layout_marginStart="4dp"
+        android:padding="6dp"
+        android:clickable="true"
+        android:focusable="false"
+        android:src="@drawable/bar_ic_prev"
+        android:contentDescription="@string/bar_prev_app" />
 
     <View
         android:layout_width="0dp"
         android:layout_height="match_parent"
         android:layout_weight="1" />
 
+    <TextView
+        android:id="@+id/btnSkip"
+        android:layout_width="wrap_content"
+        android:layout_height="32dp"
+        android:minWidth="48dp"
+        android:gravity="center"
+        android:paddingStart="8dp"
+        android:paddingEnd="8dp"
+        android:clickable="true"
+        android:focusable="false"
+        android:text="@string/bar_skip"
+        android:textColor="#FFFFFF"
+        android:textSize="13sp"
+        android:textStyle="bold"
+        android:background="@drawable/bar_skip_off"
+        android:contentDescription="@string/bar_skip_desc" />
+
+    <ImageView
+        android:id="@+id/btnVolDown"
+        android:layout_width="32dp"
+        android:layout_height="32dp"
+        android:layout_marginStart="8dp"
+        android:padding="6dp"
+        android:clickable="true"
+        android:focusable="false"
+        android:src="@drawable/bar_ic_vol_down"
+        android:contentDescription="@string/bar_vol_down" />
+
+    <ImageView
+        android:id="@+id/btnVolUp"
+        android:layout_width="32dp"
+        android:layout_height="32dp"
+        android:layout_marginStart="4dp"
+        android:padding="6dp"
+        android:clickable="true"
+        android:focusable="false"
+        android:src="@drawable/bar_ic_vol_up"
+        android:contentDescription="@string/bar_vol_up" />
+
     <ImageView
         android:id="@+id/iconBluetooth"
-        android:layout_width="20dp"
-        android:layout_height="20dp"
+        android:layout_width="32dp"
+        android:layout_height="32dp"
+        android:layout_marginStart="4dp"
         android:layout_marginEnd="8dp"
-        android:src="@android:drawable/stat_sys_data_bluetooth"
-        android:visibility="gone" />
+        android:padding="6dp"
+        android:clickable="true"
+        android:focusable="false"
+        android:src="@drawable/bar_ic_bluetooth"
+        android:alpha="0.35"
+        android:contentDescription="@string/bar_bluetooth" />
 
     <TextView
         android:id="@+id/clock"

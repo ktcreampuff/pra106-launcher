@@ -7,4 +7,7 @@ data class AppInfo(
     val packageName: String,
     val activityName: String,
     val icon: Drawable
-)
+) {
+    /** 設定保存用の一意キー */
+    val key: String get() = "$packageName/$activityName"
+}

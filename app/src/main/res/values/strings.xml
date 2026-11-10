@@ -2,4 +2,5 @@
     <string name="app_name">PRA106 Launcher</string>
     <string name="grant_overlay_permission">ステータスバー表示のため、他のアプリの上に重ねて表示する権限を許可してください</string>
     <string name="grant_accessibility_permission">戻るボタンを使うため、ユーザー補助の「PRA106 Launcher」をオンにしてください</string>
+    <string name="accessibility_desc">PRA106 Launcher：戻る・直前アプリの切り替え、YouTube/Netflixのスキップボタン自動押しに使います。</string>
 </resources>

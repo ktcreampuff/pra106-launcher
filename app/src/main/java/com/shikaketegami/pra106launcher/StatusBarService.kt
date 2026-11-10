@@ -7,6 +7,11 @@ import android.app.NotificationManager
 import android.app.PendingIntent
 import android.app.Service
 import android.bluetooth.BluetoothAdapter
+import android.bluetooth.BluetoothManager
+import android.content.BroadcastReceiver
+import android.content.IntentFilter
+import android.media.AudioManager
+import android.widget.Toast
 import android.content.Context
 import android.content.Intent
 import android.graphics.PixelFormat
@@ -25,7 +30,7 @@ import java.util.Date
 import java.util.Locale
 
 /**
- * 画面上部に簡易ステータスバー（戻る・ホーム・時計）を重ねて表示するフォアグラウンドサービス。
+ * 画面上部に簡易ステータスバー（戻る・ホーム・直前アプリ・AutoSkip切替・音量・Bluetooth・時計）を重ねて表示するフォアグラウンドサービス。
  * 注意：これは「追加表示」であり、PRA106純正のSystemUIバーを消すものではない
  * （root権限がないため、純正バーの非表示化は不可）。
  */
@@ -34,6 +39,13 @@ class StatusBarService : Service() {
     private lateinit var windowManager: WindowManager
     private var overlayView: android.view.View? = null
     private val handler = Handler(Looper.getMainLooper())
+
+    private val btReceiver = object : BroadcastReceiver() {
+        override fun onReceive(context: Context?, intent: Intent?) {
+            overlayView?.let { updateBluetoothIcon(it) }
+        }
+    }
+    private var btReceiverRegistered = false
 
     private val clockUpdater = object : Runnable {
         override fun run() {
@@ -60,7 +72,10 @@ class StatusBarService : Service() {
         super.onCreate()
         windowManager = getSystemService(Context.WINDOW_SERVICE) as WindowManager
         startForeground(NOTIFICATION_ID, buildNotification())
+        Prefs.load(this)
         showOverlay()
+        registerReceiver(btReceiver, IntentFilter(BluetoothAdapter.ACTION_STATE_CHANGED))
+        btReceiverRegistered = true
         handler.post(clockUpdater)
     }
 
@@ -71,6 +86,14 @@ class StatusBarService : Service() {
     override fun onDestroy() {
         super.onDestroy()
         handler.removeCallbacks(clockUpdater)
+        if (btReceiverRegistered) {
+            try {
+                unregisterReceiver(btReceiver)
+            } catch (e: Exception) {
+                // 未登録なら無視
+            }
+            btReceiverRegistered = false
+        }
         overlayView?.let {
             try {
                 windowManager.removeView(it)
@@ -102,16 +125,7 @@ class StatusBarService : Service() {
         )
         params.gravity = Gravity.TOP
 
-        view.findViewById<ImageView>(R.id.btnBack).setOnClickListener {
-            BackButtonAccessibilityService.performBack()
-        }
-        view.findViewById<ImageView>(R.id.btnHome).setOnClickListener {
-            val homeIntent = Intent(Intent.ACTION_MAIN).apply {
-                addCategory(Intent.CATEGORY_HOME)
-                flags = Intent.FLAG_ACTIVITY_NEW_TASK
-            }
-            startActivity(homeIntent)
-        }
+        setupButtons(view)
 
         try {
             windowManager.addView(view, params)
@@ -123,6 +137,87 @@ class StatusBarService : Service() {
         }
     }
 
+    private fun toast(resId: Int) {
+        Toast.makeText(this, resId, Toast.LENGTH_SHORT).show()
+    }
+
+    /** ユーザー補助が無効なら案内Toastを出して false を返す */
+    private fun requireAccessibility(): Boolean {
+        if (LauncherAccessibilityService.isRunning) return true
+        toast(R.string.bar_need_accessibility)
+        return false
+    }
+
+    private fun setupButtons(view: android.view.View) {
+        view.findViewById<ImageView>(R.id.btnBack).setOnClickListener {
+            if (requireAccessibility()) LauncherAccessibilityService.performBack()
+        }
+        view.findViewById<ImageView>(R.id.btnHome).setOnClickListener {
+            val homeIntent = Intent(Intent.ACTION_MAIN).apply {
+                addCategory(Intent.CATEGORY_HOME)
+                flags = Intent.FLAG_ACTIVITY_NEW_TASK
+            }
+            startActivity(homeIntent)
+        }
+        val prev = view.findViewById<ImageView>(R.id.btnPrevApp)
+        prev.setOnClickListener {
+            if (requireAccessibility() && !LauncherAccessibilityService.launchPreviousApp()) {
+                toast(R.string.bar_no_prev_app)
+            }
+        }
+        prev.setOnLongClickListener {
+            if (requireAccessibility()) LauncherAccessibilityService.openRecents()
+            true
+        }
+
+        view.findViewById<TextView>(R.id.btnSkip).setOnClickListener {
+            val next = !Prefs.autoSkipEnabled
+            Prefs.setAutoSkip(this, next)
+            updateSkipButton(view)
+            toast(if (next) R.string.bar_skip_on else R.string.bar_skip_off)
+        }
+        updateSkipButton(view)
+
+        val audio = getSystemService(Context.AUDIO_SERVICE) as AudioManager
+        val volDown = view.findViewById<ImageView>(R.id.btnVolDown)
+        val volUp = view.findViewById<ImageView>(R.id.btnVolUp)
+        volDown.setOnClickListener {
+            audio.adjustStreamVolume(
+                AudioManager.STREAM_MUSIC, AudioManager.ADJUST_LOWER, AudioManager.FLAG_SHOW_UI
+            )
+        }
+        volUp.setOnClickListener {
+            audio.adjustStreamVolume(
+                AudioManager.STREAM_MUSIC, AudioManager.ADJUST_RAISE, AudioManager.FLAG_SHOW_UI
+            )
+        }
+        val toggleMute = android.view.View.OnLongClickListener {
+            audio.adjustStreamVolume(
+                AudioManager.STREAM_MUSIC, AudioManager.ADJUST_TOGGLE_MUTE, AudioManager.FLAG_SHOW_UI
+            )
+            true
+        }
+        volDown.setOnLongClickListener(toggleMute)
+        volUp.setOnLongClickListener(toggleMute)
+
+        view.findViewById<ImageView>(R.id.iconBluetooth).setOnClickListener {
+            try {
+                startActivity(
+                    Intent(Settings.ACTION_BLUETOOTH_SETTINGS).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                )
+            } catch (e: Exception) {
+                // 設定画面が開けない場合は無視
+            }
+        }
+    }
+
+    private fun updateSkipButton(view: android.view.View) {
+        val btn = view.findViewById<TextView>(R.id.btnSkip)
+        btn.setBackgroundResource(
+            if (Prefs.autoSkipEnabled) R.drawable.bar_skip_on else R.drawable.bar_skip_off
+        )
+    }
+
     private fun updateClock() {
         val view = overlayView ?: return
         val clock = view.findViewById<TextView>(R.id.clock)
@@ -132,17 +227,14 @@ class StatusBarService : Service() {
 
     @SuppressLint("MissingPermission")
     private fun updateBluetoothIcon(view: android.view.View) {
-        try {
-            val icon = view.findViewById<ImageView>(R.id.iconBluetooth)
-            val adapter = BluetoothAdapter.getDefaultAdapter()
-            icon.visibility = if (adapter != null && adapter.isEnabled) {
-                android.view.View.VISIBLE
-            } else {
-                android.view.View.GONE
-            }
+        val icon = view.findViewById<ImageView>(R.id.iconBluetooth)
+        val on = try {
+            val manager = getSystemService(Context.BLUETOOTH_SERVICE) as? BluetoothManager
+            manager?.adapter?.isEnabled == true
         } catch (e: SecurityException) {
-            // BLUETOOTH_CONNECT権限が無い端末では非表示のまま
+            false
         }
+        icon.alpha = if (on) 1.0f else 0.35f
     }
 
     private fun buildNotification(): Notification {
