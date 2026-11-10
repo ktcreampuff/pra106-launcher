@@ -28,6 +28,18 @@ class AppAdapter(
             }
         }
 
+    /** アイコンの大きさ(dp)。変更すると全体を再バインドする */
+    var iconSizeDp: Int = 64
+        set(value) {
+            if (field != value) {
+                field = value
+                notifyDataSetChanged()
+            }
+        }
+
+    /** アイコンの倍率（ドックは 0.85） */
+    var iconScale: Float = 1f
+
     class ViewHolder(view: View) : RecyclerView.ViewHolder(view) {
         val icon: ImageView = view.findViewById(R.id.appIcon)
         val label: TextView? = view.findViewById(R.id.appLabel)
@@ -58,6 +70,13 @@ class AppAdapter(
         holder.icon.setImageDrawable(app.icon)
         holder.icon.contentDescription = app.label
         holder.label?.text = app.label
+        val density = holder.itemView.resources.displayMetrics.density
+        val px = (iconSizeDp * iconScale * density).toInt()
+        holder.icon.layoutParams = holder.icon.layoutParams.apply {
+            width = px
+            height = px
+        }
+        holder.label?.textSize = labelSp(iconSizeDp)
         if (reorderMode) {
             holder.itemView.setOnClickListener(null)
             holder.itemView.setOnLongClickListener(null)
@@ -73,4 +92,11 @@ class AppAdapter(
     }
 
     override fun getItemCount(): Int = apps.size
+
+    private fun labelSp(dp: Int): Float = when {
+        dp <= 48 -> 11f
+        dp <= 64 -> 13f
+        dp <= 80 -> 14f
+        else -> 16f
+    }
 }

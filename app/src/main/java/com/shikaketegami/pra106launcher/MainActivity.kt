@@ -23,6 +23,7 @@ import android.view.TextureView
 import android.view.View
 import android.view.accessibility.AccessibilityManager
 import android.widget.ImageView
+import android.widget.LinearLayout
 import android.widget.PopupMenu
 import android.widget.TextView
 import android.widget.Toast
@@ -51,6 +52,8 @@ class MainActivity : Activity() {
     private lateinit var bgVideo: TextureView
     private lateinit var bgImage: ImageView
     private lateinit var bgScrim: View
+    private lateinit var widgetScroll: View
+    private lateinit var widgetPanel: WidgetPanel
 
     // 背景動画の再生状態
     private var player: MediaPlayer? = null
@@ -106,6 +109,9 @@ class MainActivity : Activity() {
         bgVideo = findViewById(R.id.bgVideo)
         bgImage = findViewById(R.id.bgImage)
         bgScrim = findViewById(R.id.bgScrim)
+        widgetScroll = findViewById(R.id.widgetScroll)
+        widgetPanel = WidgetPanel(this, findViewById<LinearLayout>(R.id.widgetContainer))
+        applyWidgetVisibility()
         bgVideo.surfaceTextureListener = object : TextureView.SurfaceTextureListener {
             override fun onSurfaceTextureAvailable(st: SurfaceTexture, width: Int, height: Int) {
                 if (Prefs.getBackgroundUri(this@MainActivity) != null &&
@@ -125,14 +131,21 @@ class MainActivity : Activity() {
             override fun onSurfaceTextureUpdated(st: SurfaceTexture) {}
         }
 
-        gridLayout = GridLayoutManager(this, Prefs.getColumns(this).coerceIn(MIN_COLUMNS, MAX_COLUMNS))
+        val initialCols = if (Prefs.getAutoColumns(this)) DEFAULT_AUTO_COLUMNS
+        else Prefs.getColumns(this).coerceIn(MIN_COLUMNS, MAX_COLUMNS)
+        gridLayout = GridLayoutManager(this, initialCols)
         appGrid.layoutManager = gridLayout
         gridAdapter = AppAdapter(R.layout.item_app, { launchApp(it) }, { v, app -> showAppMenu(v, app) })
+        gridAdapter.iconSizeDp = Prefs.getIconSizeDp(this)
         appGrid.adapter = gridAdapter
+        // 画面サイズ・領域の幅が変わったら列数を再計算
+        appGrid.addOnLayoutChangeListener { _, _, _, _, _, _, _, _, _ -> updateColumns() }
         touchHelper.attachToRecyclerView(appGrid)
 
         dockList.layoutManager = LinearLayoutManager(this, LinearLayoutManager.HORIZONTAL, false)
         dockAdapter = AppAdapter(R.layout.item_dock, { launchApp(it) }, { v, app -> showDockMenu(v, app) })
+        dockAdapter.iconSizeDp = Prefs.getIconSizeDp(this)
+        dockAdapter.iconScale = 0.85f
         dockList.adapter = dockAdapter
 
         settingsButton.setOnClickListener { showSettingsMenu(it) }
@@ -149,6 +162,16 @@ class MainActivity : Activity() {
 
         refresh()
         applyBackground()
+    }
+
+    override fun onStart() {
+        super.onStart()
+        widgetPanel.start()
+    }
+
+    override fun onStop() {
+        widgetPanel.stop()
+        super.onStop()
     }
 
     override fun onDestroy() {
@@ -301,14 +324,21 @@ class MainActivity : Activity() {
 
     private fun showSettingsMenu(anchor: View) {
         val menu = PopupMenu(this, anchor)
-        menu.menu.add(0, MENU_REORDER, 0, getString(R.string.home_menu_reorder))
-        menu.menu.add(0, MENU_RESTORE, 1, getString(R.string.home_menu_restore_hidden))
-        menu.menu.add(0, MENU_COLUMNS, 2, getString(R.string.home_menu_columns))
-        menu.menu.add(0, MENU_RESET, 3, getString(R.string.home_menu_reset_order))
-        menu.menu.add(0, MENU_NATIVE_HOME, 4, getString(R.string.home_menu_native_home))
-        menu.menu.add(0, MENU_CHANGE_HOME, 5, getString(R.string.home_menu_change_home))
-        menu.menu.add(0, MENU_SET_BG, 6, getString(R.string.home_menu_set_background))
-        menu.menu.add(0, MENU_CLEAR_BG, 7, getString(R.string.home_menu_clear_background))
+        val edit = menu.menu.addSubMenu(0, MENU_GROUP_EDIT, 0, getString(R.string.home_menu_group_edit))
+        edit.add(0, MENU_REORDER, 0, getString(R.string.home_menu_reorder))
+        edit.add(0, MENU_RESTORE, 1, getString(R.string.home_menu_restore_hidden))
+        edit.add(0, MENU_ICON_SIZE, 2, getString(R.string.home_menu_icon_size))
+        edit.add(0, MENU_COLUMNS, 3, getString(R.string.home_menu_columns))
+        edit.add(0, MENU_RESET, 4, getString(R.string.home_menu_reset_order))
+        val other = menu.menu.addSubMenu(0, MENU_GROUP_OTHER, 1, getString(R.string.home_menu_group_other))
+        other.add(0, MENU_WIDGET_ADD, 0, getString(R.string.home_menu_widget_add))
+        other.add(0, MENU_WIDGET_TOGGLE, 1, getString(
+            if (Prefs.getWidgetPanelVisible(this)) R.string.home_menu_widget_hide
+            else R.string.home_menu_widget_show))
+        other.add(0, MENU_SET_BG, 2, getString(R.string.home_menu_set_background))
+        other.add(0, MENU_CLEAR_BG, 3, getString(R.string.home_menu_clear_background))
+        other.add(0, MENU_NATIVE_HOME, 4, getString(R.string.home_menu_native_home))
+        other.add(0, MENU_CHANGE_HOME, 5, getString(R.string.home_menu_change_home))
         menu.setOnMenuItemClickListener { item ->
             when (item.itemId) {
                 MENU_REORDER -> setReorderMode(true)
@@ -316,6 +346,18 @@ class MainActivity : Activity() {
                 MENU_NATIVE_HOME -> openNativeHome()
                 MENU_CHANGE_HOME -> openHomeSettings()
                 MENU_COLUMNS -> showColumnsDialog()
+                MENU_ICON_SIZE -> showIconSizeDialog()
+                MENU_WIDGET_ADD -> {
+                    if (!Prefs.getWidgetPanelVisible(this)) {
+                        Prefs.setWidgetPanelVisible(this, true)
+                        applyWidgetVisibility()
+                    }
+                    widgetPanel.addWidget()
+                }
+                MENU_WIDGET_TOGGLE -> {
+                    Prefs.setWidgetPanelVisible(this, !Prefs.getWidgetPanelVisible(this))
+                    applyWidgetVisibility()
+                }
                 MENU_SET_BG -> pickBackground()
                 MENU_CLEAR_BG -> {
                     Prefs.setBackground(this, null, false)
@@ -348,6 +390,7 @@ class MainActivity : Activity() {
     @Deprecated("Deprecated in Java")
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
         super.onActivityResult(requestCode, resultCode, data)
+        if (widgetPanel.handleActivityResult(requestCode, resultCode, data)) return
         if (requestCode != REQUEST_BACKGROUND || resultCode != RESULT_OK) return
         val uri = data?.data ?: return
         try {
@@ -544,15 +587,59 @@ class MainActivity : Activity() {
         }
     }
 
+    private fun applyWidgetVisibility() {
+        widgetScroll.visibility = if (Prefs.getWidgetPanelVisible(this)) View.VISIBLE else View.GONE
+    }
+
+    /** 自動ON時、グリッドの実幅とアイコンの大きさから列数を決める（最低3） */
+    private fun updateColumns() {
+        if (!Prefs.getAutoColumns(this)) return
+        val usable = appGrid.width - appGrid.paddingLeft - appGrid.paddingRight
+        if (usable <= 0) return
+        val cellPx = (Prefs.getIconSizeDp(this) + CELL_MARGIN_DP) * resources.displayMetrics.density
+        val n = (usable / cellPx).toInt().coerceAtLeast(MIN_AUTO_COLUMNS)
+        if (gridLayout.spanCount != n) gridLayout.spanCount = n
+    }
+
+    private fun showIconSizeDialog() {
+        val sizes = intArrayOf(48, 64, 80, 96)
+        val labels = arrayOf(
+            getString(R.string.home_icon_size_small),
+            getString(R.string.home_icon_size_medium),
+            getString(R.string.home_icon_size_large),
+            getString(R.string.home_icon_size_xlarge)
+        )
+        val current = sizes.indexOf(Prefs.getIconSizeDp(this)).let { if (it < 0) 1 else it }
+        AlertDialog.Builder(this)
+            .setTitle(R.string.home_icon_size_title)
+            .setSingleChoiceItems(labels, current) { dialog, which ->
+                Prefs.setIconSizeDp(this, sizes[which])
+                gridAdapter.iconSizeDp = sizes[which]
+                dockAdapter.iconSizeDp = sizes[which]
+                updateColumns()
+                dialog.dismiss()
+            }
+            .setNegativeButton(R.string.home_cancel, null)
+            .show()
+    }
+
     private fun showColumnsDialog() {
         val options = (MIN_COLUMNS..MAX_COLUMNS).toList()
-        val current = options.indexOf(gridLayout.spanCount).coerceAtLeast(0)
+        val labels = (listOf(getString(R.string.home_columns_auto)) + options.map { it.toString() }).toTypedArray()
+        val current = if (Prefs.getAutoColumns(this)) 0
+        else (options.indexOf(gridLayout.spanCount) + 1).coerceAtLeast(1)
         AlertDialog.Builder(this)
             .setTitle(R.string.home_columns_title)
-            .setSingleChoiceItems(options.map { it.toString() }.toTypedArray(), current) { dialog, which ->
-                val n = options[which]
-                Prefs.setColumns(this, n)
-                gridLayout.spanCount = n
+            .setSingleChoiceItems(labels, current) { dialog, which ->
+                if (which == 0) {
+                    Prefs.setAutoColumns(this, true)
+                    updateColumns()
+                } else {
+                    val n = options[which - 1]
+                    Prefs.setAutoColumns(this, false)
+                    Prefs.setColumns(this, n)
+                    gridLayout.spanCount = n
+                }
                 dialog.dismiss()
             }
             .setNegativeButton(R.string.home_cancel, null)
@@ -634,6 +721,14 @@ class MainActivity : Activity() {
     companion object {
         private const val MIN_COLUMNS = 4
         private const val MAX_COLUMNS = 7
+        private const val MIN_AUTO_COLUMNS = 3
+        private const val DEFAULT_AUTO_COLUMNS = 4
+        private const val CELL_MARGIN_DP = 32
+        private const val MENU_GROUP_EDIT = 20
+        private const val MENU_GROUP_OTHER = 21
+        private const val MENU_ICON_SIZE = 22
+        private const val MENU_WIDGET_ADD = 23
+        private const val MENU_WIDGET_TOGGLE = 24
         private const val MENU_DOCK = 1
         private const val MENU_HIDE = 2
         private const val MENU_INFO = 3

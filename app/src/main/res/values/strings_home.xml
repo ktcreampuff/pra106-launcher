@@ -21,4 +21,16 @@
     <string name="home_menu_set_background">背景を設定（動画・画像）</string>
     <string name="home_menu_clear_background">背景を解除</string>
     <string name="home_background_open_failed">背景ファイルを開けませんでした</string>
+    <string name="home_menu_group_edit">編集</string>
+    <string name="home_menu_group_other">その他</string>
+    <string name="home_menu_icon_size">アイコンの大きさ</string>
+    <string name="home_icon_size_title">アイコンの大きさ</string>
+    <string name="home_icon_size_small">小</string>
+    <string name="home_icon_size_medium">中</string>
+    <string name="home_icon_size_large">大</string>
+    <string name="home_icon_size_xlarge">特大</string>
+    <string name="home_columns_auto">自動（アイコンの大きさに合わせる）</string>
+    <string name="home_menu_widget_add">ウィジェットを追加</string>
+    <string name="home_menu_widget_show">ウィジェット領域を表示</string>
+    <string name="home_menu_widget_hide">ウィジェット領域を隠す</string>
 </resources>

@@ -1,0 +1,12 @@
+<resources>
+    <string name="widget_empty_hint">⋯メニューの「ウィジェットを追加」で置けます</string>
+    <string name="widget_pick_title">ウィジェットを選ぶ</string>
+    <string name="widget_pick_none">利用できるウィジェットがありません</string>
+    <string name="widget_menu_height_small">高さ：小(120dp)</string>
+    <string name="widget_menu_height_medium">高さ：中(200dp)</string>
+    <string name="widget_menu_height_large">高さ：大(300dp)</string>
+    <string name="widget_menu_move_up">上へ移動</string>
+    <string name="widget_menu_move_down">下へ移動</string>
+    <string name="widget_menu_delete">削除</string>
+    <string name="widget_cancel">キャンセル</string>
+</resources>

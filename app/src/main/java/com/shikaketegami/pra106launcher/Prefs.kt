@@ -52,6 +52,25 @@ object Prefs {
     fun setBackground(c: Context, uri: String?, isVideo: Boolean) =
         sp(c).edit().putString("background_uri", uri).putBoolean("background_is_video", isVideo).apply()
 
+    /** アイコンサイズ（dp）。48 / 64 / 80 / 96 のいずれか */
+    fun getIconSizeDp(c: Context) = sp(c).getInt("icon_size_dp", 64)
+    fun setIconSizeDp(c: Context, dp: Int) = sp(c).edit().putInt("icon_size_dp", dp).apply()
+
+    /** 列数を画面幅とアイコンサイズから自動で決めるか（false なら getColumns を使う） */
+    fun getAutoColumns(c: Context) = sp(c).getBoolean("auto_columns", true)
+    fun setAutoColumns(c: Context, on: Boolean) = sp(c).edit().putBoolean("auto_columns", on).apply()
+
+    /** ウィジェット：appWidgetId と高さ(dp) を "id:height" の形で順に保存 */
+    fun getWidgets(c: Context): List<Pair<Int, Int>> = getList(c, "widgets").mapNotNull {
+        val p = it.split(":"); p.getOrNull(0)?.toIntOrNull()?.let { id -> id to (p.getOrNull(1)?.toIntOrNull() ?: 160) }
+    }
+    fun setWidgets(c: Context, list: List<Pair<Int, Int>>) =
+        putList(c, "widgets", list.map { "${it.first}:${it.second}" })
+
+    /** ウィジェット領域（ホーム左側）を表示するか */
+    fun getWidgetPanelVisible(c: Context) = sp(c).getBoolean("widget_panel", true)
+    fun setWidgetPanelVisible(c: Context, on: Boolean) = sp(c).edit().putBoolean("widget_panel", on).apply()
+
     fun setAutoSkip(c: Context, on: Boolean) {
         autoSkipEnabled = on
         sp(c).edit().putBoolean(K_AUTOSKIP, on).apply()
