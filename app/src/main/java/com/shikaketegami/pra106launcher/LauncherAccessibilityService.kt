@@ -88,5 +88,4 @@ class LauncherAccessibilityService : AccessibilityService() {
     }
 
     private fun isSystemUiLike(pkg: String) = pkg.contains("systemui", ignoreCase = true)
-    }
 }
