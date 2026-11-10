@@ -26,8 +26,13 @@ jobs:
         with:
           gradle-version: '8.7'
 
-      - name: Accept Android SDK licenses & set up SDK
-        uses: android-actions/setup-android@v3
+      - name: Accept Android SDK licenses
+        run: yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --licenses >/dev/null || true
+
+      - name: Install required SDK packages
+        run: |
+          "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" \
+            "platforms;android-34" "build-tools;34.0.0" "platform-tools"
 
       - name: Build debug APK
         run: gradle assembleDebug --no-daemon
