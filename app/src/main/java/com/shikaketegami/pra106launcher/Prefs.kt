@@ -46,6 +46,12 @@ object Prefs {
     fun getColumns(c: Context) = sp(c).getInt(K_COLUMNS, 5)
     fun setColumns(c: Context, n: Int) = sp(c).edit().putInt(K_COLUMNS, n).apply()
 
+    /** ランチャー背景（動画または画像）の content:// URI。未設定なら null */
+    fun getBackgroundUri(c: Context): String? = sp(c).getString("background_uri", null)
+    fun getBackgroundIsVideo(c: Context): Boolean = sp(c).getBoolean("background_is_video", false)
+    fun setBackground(c: Context, uri: String?, isVideo: Boolean) =
+        sp(c).edit().putString("background_uri", uri).putBoolean("background_is_video", isVideo).apply()
+
     fun setAutoSkip(c: Context, on: Boolean) {
         autoSkipEnabled = on
         sp(c).edit().putBoolean(K_AUTOSKIP, on).apply()

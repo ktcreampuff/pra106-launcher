@@ -8,13 +8,21 @@ import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
 import android.content.pm.PackageManager
+import android.graphics.Bitmap
+import android.graphics.BitmapFactory
+import android.graphics.Matrix
+import android.graphics.SurfaceTexture
+import android.media.MediaPlayer
 import android.net.Uri
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
 import android.provider.Settings
+import android.view.Surface
+import android.view.TextureView
 import android.view.View
 import android.view.accessibility.AccessibilityManager
+import android.widget.ImageView
 import android.widget.PopupMenu
 import android.widget.TextView
 import android.widget.Toast
@@ -40,6 +48,19 @@ class MainActivity : Activity() {
     private lateinit var gridAdapter: AppAdapter
     private lateinit var dockAdapter: AppAdapter
     private lateinit var gridLayout: GridLayoutManager
+    private lateinit var bgVideo: TextureView
+    private lateinit var bgImage: ImageView
+    private lateinit var bgScrim: View
+
+    // 背景動画の再生状態
+    private var player: MediaPlayer? = null
+    private var playerSurface: Surface? = null
+    private var playerPrepared = false
+    private var videoW = 0
+    private var videoH = 0
+    private var resumed = false
+    /** 背景の読み込み世代（古い非同期結果を捨てるため） */
+    private var bgGeneration = 0
 
     /** 端末にある全アプリ（非表示含む・名前順） */
     private var allApps: List<AppInfo> = emptyList()
@@ -82,6 +103,27 @@ class MainActivity : Activity() {
         settingsButton = findViewById(R.id.settingsButton)
         nativeHomeButton = findViewById(R.id.nativeHomeButton)
         reorderBar = findViewById(R.id.reorderBar)
+        bgVideo = findViewById(R.id.bgVideo)
+        bgImage = findViewById(R.id.bgImage)
+        bgScrim = findViewById(R.id.bgScrim)
+        bgVideo.surfaceTextureListener = object : TextureView.SurfaceTextureListener {
+            override fun onSurfaceTextureAvailable(st: SurfaceTexture, width: Int, height: Int) {
+                if (Prefs.getBackgroundUri(this@MainActivity) != null &&
+                    Prefs.getBackgroundIsVideo(this@MainActivity)
+                ) startVideo(st)
+            }
+
+            override fun onSurfaceTextureSizeChanged(st: SurfaceTexture, width: Int, height: Int) {
+                updateVideoTransform()
+            }
+
+            override fun onSurfaceTextureDestroyed(st: SurfaceTexture): Boolean {
+                releasePlayer()
+                return true
+            }
+
+            override fun onSurfaceTextureUpdated(st: SurfaceTexture) {}
+        }
 
         gridLayout = GridLayoutManager(this, Prefs.getColumns(this).coerceIn(MIN_COLUMNS, MAX_COLUMNS))
         appGrid.layoutManager = gridLayout
@@ -106,10 +148,13 @@ class MainActivity : Activity() {
         registerReceiver(packageReceiver, filter)
 
         refresh()
+        applyBackground()
     }
 
     override fun onDestroy() {
         handler.removeCallbacks(reloadRunnable)
+        bgGeneration++
+        releasePlayer()
         try {
             unregisterReceiver(packageReceiver)
         } catch (e: IllegalArgumentException) {
@@ -133,8 +178,25 @@ class MainActivity : Activity() {
         }
     }
 
+    override fun onPause() {
+        // 他アプリが前面のときはデコード負荷を避けるため必ず停止
+        resumed = false
+        try {
+            player?.let { if (playerPrepared && it.isPlaying) it.pause() }
+        } catch (e: IllegalStateException) {
+            // 無視
+        }
+        super.onPause()
+    }
+
     override fun onResume() {
         super.onResume()
+        resumed = true
+        try {
+            player?.let { if (playerPrepared && !it.isPlaying) it.start() }
+        } catch (e: IllegalStateException) {
+            // 無視
+        }
         checkPermissionsAndMaybeStartOverlay()
     }
 
@@ -245,6 +307,8 @@ class MainActivity : Activity() {
         menu.menu.add(0, MENU_RESET, 3, getString(R.string.home_menu_reset_order))
         menu.menu.add(0, MENU_NATIVE_HOME, 4, getString(R.string.home_menu_native_home))
         menu.menu.add(0, MENU_CHANGE_HOME, 5, getString(R.string.home_menu_change_home))
+        menu.menu.add(0, MENU_SET_BG, 6, getString(R.string.home_menu_set_background))
+        menu.menu.add(0, MENU_CLEAR_BG, 7, getString(R.string.home_menu_clear_background))
         menu.setOnMenuItemClickListener { item ->
             when (item.itemId) {
                 MENU_REORDER -> setReorderMode(true)
@@ -252,6 +316,11 @@ class MainActivity : Activity() {
                 MENU_NATIVE_HOME -> openNativeHome()
                 MENU_CHANGE_HOME -> openHomeSettings()
                 MENU_COLUMNS -> showColumnsDialog()
+                MENU_SET_BG -> pickBackground()
+                MENU_CLEAR_BG -> {
+                    Prefs.setBackground(this, null, false)
+                    applyBackground()
+                }
                 MENU_RESET -> {
                     Prefs.setOrder(this, emptyList())
                     applyLists()
@@ -260,6 +329,163 @@ class MainActivity : Activity() {
             true
         }
         menu.show()
+    }
+
+    private fun pickBackground() {
+        val intent = Intent(Intent.ACTION_OPEN_DOCUMENT).apply {
+            addCategory(Intent.CATEGORY_OPENABLE)
+            type = "*/*"
+            putExtra(Intent.EXTRA_MIME_TYPES, arrayOf("video/*", "image/*"))
+            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION)
+        }
+        try {
+            startActivityForResult(intent, REQUEST_BACKGROUND)
+        } catch (e: Exception) {
+            Toast.makeText(this, R.string.home_background_open_failed, Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    @Deprecated("Deprecated in Java")
+    override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
+        super.onActivityResult(requestCode, resultCode, data)
+        if (requestCode != REQUEST_BACKGROUND || resultCode != RESULT_OK) return
+        val uri = data?.data ?: return
+        try {
+            contentResolver.takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION)
+        } catch (e: Exception) {
+            // 永続化できなくても、今回は表示を試みる
+        }
+        val isVideo = contentResolver.getType(uri)?.startsWith("video/") == true
+        Prefs.setBackground(this, uri.toString(), isVideo)
+        applyBackground()
+    }
+
+    /** 保存済みの背景設定を画面に反映する */
+    private fun applyBackground() {
+        bgGeneration++
+        releasePlayer()
+        val uriStr = Prefs.getBackgroundUri(this)
+        if (uriStr == null) {
+            bgVideo.visibility = View.GONE
+            bgImage.visibility = View.GONE
+            bgImage.setImageDrawable(null)
+            bgScrim.visibility = View.GONE
+            return
+        }
+        bgScrim.visibility = View.VISIBLE
+        if (Prefs.getBackgroundIsVideo(this)) {
+            bgImage.visibility = View.GONE
+            bgImage.setImageDrawable(null)
+            bgVideo.visibility = View.VISIBLE
+            // 既に Surface があれば直接開始、無ければ onSurfaceTextureAvailable で開始
+            if (bgVideo.isAvailable) bgVideo.surfaceTexture?.let { startVideo(it) }
+        } else {
+            bgVideo.visibility = View.GONE
+            loadBackgroundImage(Uri.parse(uriStr))
+        }
+    }
+
+    /** 画像を画面サイズ程度に縮小して読み込む */
+    private fun loadBackgroundImage(uri: Uri) {
+        val gen = bgGeneration
+        val dm = resources.displayMetrics
+        val reqW = dm.widthPixels
+        val reqH = dm.heightPixels
+        Thread {
+            var bmp: Bitmap? = null
+            try {
+                val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+                contentResolver.openInputStream(uri)?.use { BitmapFactory.decodeStream(it, null, bounds) }
+                var sample = 1
+                while (bounds.outWidth / (sample * 2) >= reqW && bounds.outHeight / (sample * 2) >= reqH) {
+                    sample *= 2
+                }
+                val opts = BitmapFactory.Options().apply { inSampleSize = sample }
+                bmp = contentResolver.openInputStream(uri)?.use { BitmapFactory.decodeStream(it, null, opts) }
+            } catch (e: Exception) {
+                bmp = null
+            }
+            val result = bmp
+            handler.post {
+                if (isDestroyed || gen != bgGeneration) return@post
+                if (result == null) {
+                    onBackgroundFailed()
+                } else {
+                    bgImage.setImageBitmap(result)
+                    bgImage.visibility = View.VISIBLE
+                }
+            }
+        }.start()
+    }
+
+    private fun startVideo(st: SurfaceTexture) {
+        val uriStr = Prefs.getBackgroundUri(this) ?: return
+        releasePlayer()
+        videoW = 0
+        videoH = 0
+        try {
+            val surface = Surface(st)
+            playerSurface = surface
+            val mp = MediaPlayer()
+            player = mp
+            playerPrepared = false
+            mp.setSurface(surface)
+            mp.setDataSource(this, Uri.parse(uriStr))
+            mp.isLooping = true
+            mp.setVolume(0f, 0f)
+            mp.setOnVideoSizeChangedListener { _, w, h ->
+                videoW = w
+                videoH = h
+                updateVideoTransform()
+            }
+            mp.setOnPreparedListener {
+                if (player !== mp) return@setOnPreparedListener
+                playerPrepared = true
+                updateVideoTransform()
+                if (resumed) it.start()
+            }
+            mp.setOnErrorListener { _, _, _ ->
+                if (player === mp) onBackgroundFailed()
+                true
+            }
+            mp.prepareAsync()
+        } catch (e: Exception) {
+            onBackgroundFailed()
+        }
+    }
+
+    /** 動画が画面を覆うように（centerCrop 相当）TextureView を拡大する */
+    private fun updateVideoTransform() {
+        val vw = bgVideo.width.toFloat()
+        val vh = bgVideo.height.toFloat()
+        if (videoW <= 0 || videoH <= 0 || vw <= 0f || vh <= 0f) return
+        val fill = maxOf(vw / videoW, vh / videoH)
+        val matrix = Matrix()
+        matrix.setScale(fill * videoW / vw, fill * videoH / vh, vw / 2f, vh / 2f)
+        bgVideo.setTransform(matrix)
+    }
+
+    private fun releasePlayer() {
+        playerPrepared = false
+        player?.let {
+            try {
+                it.setOnErrorListener(null)
+                it.setOnPreparedListener(null)
+                it.release()
+            } catch (e: Exception) {
+                // 無視
+            }
+        }
+        player = null
+        playerSurface?.release()
+        playerSurface = null
+    }
+
+    /** 背景ファイルが読めないとき：背景を解除して通知 */
+    private fun onBackgroundFailed() {
+        Prefs.setBackground(this, null, false)
+        applyBackground()
+        Toast.makeText(this, R.string.home_background_open_failed, Toast.LENGTH_SHORT).show()
     }
 
     /** 全アプリをチェック一覧で出し、チェック＝表示・外す＝非表示として保存する */
@@ -417,5 +643,8 @@ class MainActivity : Activity() {
         private const val MENU_RESET = 14
         private const val MENU_NATIVE_HOME = 15
         private const val MENU_CHANGE_HOME = 16
+        private const val MENU_SET_BG = 17
+        private const val MENU_CLEAR_BG = 18
+        private const val REQUEST_BACKGROUND = 100
     }
 }

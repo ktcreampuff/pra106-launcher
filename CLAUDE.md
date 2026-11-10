@@ -10,10 +10,17 @@ PORMIDO PRA106（Android 13・QCM6125・車載ディスプレイオーディオ�
 
 ## 構成
 - `MainActivity` / `AppAdapter`：ホーム（アプリのグリッド・ドック・並べ替え・非表示）
-- `StatusBarService`：重ねて表示する簡易バー（戻る・ホーム・直前アプリ・音量・Bluetooth・AutoSkip切替・時計）
+- `StatusBarService`：重ねて表示する簡易バー（右＝運転席側から 戻る・ホーム・前のアプリ・SKIP・Bluetooth・Wi-Fi再検索、左端に時計）
+- `NativeHomeTileService`：クイック設定パネルの「純正ホーム」タイル
 - `LauncherAccessibilityService`：唯一のユーザー補助サービス。GlobalAction の実行、前面アプリの追跡、AutoSkipEngine へのイベント受け渡し
 - `AutoSkipEngine`：YouTube/Netflix/Prime Video のスキップボタンを自動で押す
 - `Prefs`：設定の保存（全機能で共有）
+
+## 開発の流れ
+1. 機能担当（`android-feature`）が、担当ファイルを分けて並列に実装する
+2. `ux-critic` がダメ出しする（コードは触らない）
+3. 「高」の指摘は必ず直す。「中・低」はユーザーに確認してから直す
+4. push して GitHub Actions のビルドを通し、APK とデモ（iPhone用HTML）を更新する
 
 ## 規約
 - Kotlin で、Jetpack Compose は使わない（View + RecyclerView）。新しい依存ライブラリは極力追加しない。
