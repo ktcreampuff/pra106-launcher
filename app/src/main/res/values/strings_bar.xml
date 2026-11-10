@@ -4,11 +4,11 @@
     <string name="bar_prev_app">直前のアプリ</string>
     <string name="bar_skip">SKIP</string>
     <string name="bar_skip_desc">AutoSkip切替</string>
-    <string name="bar_vol_down">音量を下げる</string>
-    <string name="bar_vol_up">音量を上げる</string>
     <string name="bar_bluetooth">Bluetooth</string>
     <string name="bar_no_prev_app">直前のアプリがありません</string>
     <string name="bar_need_accessibility">ユーザー補助の PRA106 Launcher をオンにしてください</string>
     <string name="bar_skip_on">AutoSkip：ON</string>
     <string name="bar_skip_off">AutoSkip：OFF</string>
+    <string name="bar_wifi">Wi-Fi再検索</string>
+    <string name="bar_wifi_rescan">Wi-Fiを再検索します</string>
 </resources>

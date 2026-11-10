@@ -11,8 +11,8 @@ android {
         applicationId = "com.shikaketegami.pra106launcher"
         minSdk = 24
         targetSdk = 33
-        versionCode = 2
-        versionName = "0.2.0"
+        versionCode = 3
+        versionName = "0.3.0"
     }
 
     // 署名を固定（CIのたびに鍵が変わると上書きインストールできないため）

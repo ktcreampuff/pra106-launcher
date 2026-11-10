@@ -35,6 +35,7 @@ class MainActivity : Activity() {
     private lateinit var dockList: RecyclerView
     private lateinit var permissionBanner: TextView
     private lateinit var settingsButton: View
+    private lateinit var nativeHomeButton: View
     private lateinit var reorderBar: View
     private lateinit var gridAdapter: AppAdapter
     private lateinit var dockAdapter: AppAdapter
@@ -79,6 +80,7 @@ class MainActivity : Activity() {
         dockList = findViewById(R.id.dockList)
         permissionBanner = findViewById(R.id.permissionBanner)
         settingsButton = findViewById(R.id.settingsButton)
+        nativeHomeButton = findViewById(R.id.nativeHomeButton)
         reorderBar = findViewById(R.id.reorderBar)
 
         gridLayout = GridLayoutManager(this, Prefs.getColumns(this).coerceIn(MIN_COLUMNS, MAX_COLUMNS))
@@ -92,6 +94,7 @@ class MainActivity : Activity() {
         dockList.adapter = dockAdapter
 
         settingsButton.setOnClickListener { showSettingsMenu(it) }
+        nativeHomeButton.setOnClickListener { openNativeHome() }
         reorderBar.setOnClickListener { setReorderMode(false) }
 
         val filter = IntentFilter().apply {
@@ -164,6 +167,7 @@ class MainActivity : Activity() {
         dockAdapter.reorderMode = on
         reorderBar.visibility = if (on) View.VISIBLE else View.GONE
         settingsButton.visibility = if (on) View.INVISIBLE else View.VISIBLE
+        nativeHomeButton.visibility = if (on) View.INVISIBLE else View.VISIBLE
     }
 
     private fun saveGridOrder() {
@@ -239,10 +243,14 @@ class MainActivity : Activity() {
         menu.menu.add(0, MENU_RESTORE, 1, getString(R.string.home_menu_restore_hidden))
         menu.menu.add(0, MENU_COLUMNS, 2, getString(R.string.home_menu_columns))
         menu.menu.add(0, MENU_RESET, 3, getString(R.string.home_menu_reset_order))
+        menu.menu.add(0, MENU_NATIVE_HOME, 4, getString(R.string.home_menu_native_home))
+        menu.menu.add(0, MENU_CHANGE_HOME, 5, getString(R.string.home_menu_change_home))
         menu.setOnMenuItemClickListener { item ->
             when (item.itemId) {
                 MENU_REORDER -> setReorderMode(true)
-                MENU_RESTORE -> showRestoreDialog()
+                MENU_RESTORE -> showVisibleAppsDialog()
+                MENU_NATIVE_HOME -> openNativeHome()
+                MENU_CHANGE_HOME -> openHomeSettings()
                 MENU_COLUMNS -> showColumnsDialog()
                 MENU_RESET -> {
                     Prefs.setOrder(this, emptyList())
@@ -254,28 +262,60 @@ class MainActivity : Activity() {
         menu.show()
     }
 
-    private fun showRestoreDialog() {
+    /** 全アプリをチェック一覧で出し、チェック＝表示・外す＝非表示として保存する */
+    private fun showVisibleAppsDialog() {
+        val apps = allApps
         val hidden = Prefs.getHidden(this)
-        val targets = allApps.filter { it.key in hidden }
-        if (targets.isEmpty()) {
-            Toast.makeText(this, R.string.home_no_hidden, Toast.LENGTH_SHORT).show()
-            return
-        }
-        val checked = BooleanArray(targets.size)
+        val checked = BooleanArray(apps.size) { apps[it].key !in hidden }
         AlertDialog.Builder(this)
-            .setTitle(R.string.home_restore_title)
-            .setMultiChoiceItems(targets.map { it.label }.toTypedArray(), checked) { _, which, isChecked ->
+            .setTitle(R.string.home_visible_title)
+            .setMultiChoiceItems(apps.map { it.label }.toTypedArray(), checked) { _, which, isChecked ->
                 checked[which] = isChecked
             }
             .setPositiveButton(R.string.home_ok) { _, _ ->
-                val restore = targets.filterIndexed { i, _ -> checked[i] }.map { it.key }.toSet()
-                if (restore.isNotEmpty()) {
-                    Prefs.setHidden(this, Prefs.getHidden(this) - restore)
-                    applyLists()
-                }
+                val allKeys = apps.map { it.key }.toSet()
+                // 現在インストールされていないアプリの非表示設定はそのまま残す
+                val newHidden = (hidden - allKeys) +
+                    apps.filterIndexed { i, _ -> !checked[i] }.map { it.key }
+                Prefs.setHidden(this, newHidden)
+                applyLists()
             }
             .setNegativeButton(R.string.home_cancel, null)
             .show()
+    }
+
+    /** 純正ホーム（自パッケージ以外でHOMEを解決できる最初のActivity）を開く */
+    private fun openNativeHome() {
+        val homeIntent = Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_HOME)
+        val target = packageManager.queryIntentActivities(homeIntent, 0)
+            .firstOrNull { it.activityInfo.packageName != packageName }
+        if (target == null) {
+            Toast.makeText(this, R.string.home_native_home_not_found, Toast.LENGTH_SHORT).show()
+            return
+        }
+        val intent = Intent(Intent.ACTION_MAIN).apply {
+            addCategory(Intent.CATEGORY_HOME)
+            component = ComponentName(target.activityInfo.packageName, target.activityInfo.name)
+            flags = Intent.FLAG_ACTIVITY_NEW_TASK
+        }
+        try {
+            startActivity(intent)
+        } catch (e: Exception) {
+            Toast.makeText(this, R.string.home_native_home_not_found, Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    /** デフォルトのホームアプリ設定を開く（失敗時は設定トップ） */
+    private fun openHomeSettings() {
+        try {
+            startActivity(Intent(Settings.ACTION_HOME_SETTINGS).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+        } catch (e: Exception) {
+            try {
+                startActivity(Intent(Settings.ACTION_SETTINGS).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+            } catch (e2: Exception) {
+                // 開けない場合は無視
+            }
+        }
     }
 
     private fun showColumnsDialog() {
@@ -375,5 +415,7 @@ class MainActivity : Activity() {
         private const val MENU_RESTORE = 12
         private const val MENU_COLUMNS = 13
         private const val MENU_RESET = 14
+        private const val MENU_NATIVE_HOME = 15
+        private const val MENU_CHANGE_HOME = 16
     }
 }

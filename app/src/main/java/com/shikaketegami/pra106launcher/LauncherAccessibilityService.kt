@@ -24,6 +24,14 @@ class LauncherAccessibilityService : AccessibilityService() {
 
         /** 直前に使っていたアプリへ切り替える。成功したら true */
         fun launchPreviousApp(): Boolean = instance?.switchToPrevious() ?: false
+
+        /** 前面に出ている通常アプリのパッケージ名（ホーム・SystemUI・自分なら null） */
+        fun currentAppPackage(): String? = instance?.currentApp()
+    }
+
+    private fun currentApp(): String? {
+        val p = foregroundPkg ?: return null
+        return if (p in ignoredPkgs || isSystemUiLike(p)) null else p
     }
 
     private var autoSkip: AutoSkipEngine? = null
@@ -51,13 +59,15 @@ class LauncherAccessibilityService : AccessibilityService() {
     override fun onAccessibilityEvent(event: AccessibilityEvent?) {
         event ?: return
         if (event.eventType == AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED) {
-            trackForeground(event.packageName?.toString())
+            trackForeground(event.packageName?.toString(), event.className?.toString())
         }
         if (Prefs.autoSkipEnabled) autoSkip?.onEvent(event)
     }
 
-    private fun trackForeground(pkg: String?) {
+    private fun trackForeground(pkg: String?, cls: String?) {
         if (pkg.isNullOrEmpty()) return
+        // 自作バー（オーバーレイ）やトーストなど、自分のActivity以外の窓は前面扱いしない
+        if (pkg == packageName && cls?.endsWith("MainActivity") != true) return
         foregroundPkg = pkg
         if (pkg in ignoredPkgs || isSystemUiLike(pkg)) return
         history.remove(pkg)

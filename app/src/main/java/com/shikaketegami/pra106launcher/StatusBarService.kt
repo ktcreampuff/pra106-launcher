@@ -10,7 +10,10 @@ import android.bluetooth.BluetoothAdapter
 import android.bluetooth.BluetoothManager
 import android.content.BroadcastReceiver
 import android.content.IntentFilter
-import android.media.AudioManager
+import android.net.ConnectivityManager
+import android.net.Network
+import android.net.NetworkCapabilities
+import android.net.wifi.WifiManager
 import android.widget.Toast
 import android.content.Context
 import android.content.Intent
@@ -30,7 +33,7 @@ import java.util.Date
 import java.util.Locale
 
 /**
- * 画面上部に簡易ステータスバー（戻る・ホーム・直前アプリ・AutoSkip切替・音量・Bluetooth・時計）を重ねて表示するフォアグラウンドサービス。
+ * 画面上部に簡易ステータスバー（時計・Wi-Fi再検索・Bluetooth・AutoSkip切替・直前アプリ・ホーム・戻る。操作ボタンは右ハンドル車に合わせて右寄せ）を重ねて表示するフォアグラウンドサービス。
  * 注意：これは「追加表示」であり、PRA106純正のSystemUIバーを消すものではない
  * （root権限がないため、純正バーの非表示化は不可）。
  */
@@ -46,6 +49,8 @@ class StatusBarService : Service() {
         }
     }
     private var btReceiverRegistered = false
+
+    private var netCallback: ConnectivityManager.NetworkCallback? = null
 
     private val clockUpdater = object : Runnable {
         override fun run() {
@@ -76,6 +81,7 @@ class StatusBarService : Service() {
         showOverlay()
         registerReceiver(btReceiver, IntentFilter(BluetoothAdapter.ACTION_STATE_CHANGED))
         btReceiverRegistered = true
+        registerNetworkCallback()
         handler.post(clockUpdater)
     }
 
@@ -94,6 +100,7 @@ class StatusBarService : Service() {
             }
             btReceiverRegistered = false
         }
+        unregisterNetworkCallback()
         overlayView?.let {
             try {
                 windowManager.removeView(it)
@@ -152,12 +159,11 @@ class StatusBarService : Service() {
         view.findViewById<ImageView>(R.id.btnBack).setOnClickListener {
             if (requireAccessibility()) LauncherAccessibilityService.performBack()
         }
-        view.findViewById<ImageView>(R.id.btnHome).setOnClickListener {
-            val homeIntent = Intent(Intent.ACTION_MAIN).apply {
-                addCategory(Intent.CATEGORY_HOME)
-                flags = Intent.FLAG_ACTIVITY_NEW_TASK
-            }
-            startActivity(homeIntent)
+        val home = view.findViewById<ImageView>(R.id.btnHome)
+        home.setOnClickListener { goHomeOrAppTop() }
+        home.setOnLongClickListener {
+            openLauncherTop()
+            true
         }
         val prev = view.findViewById<ImageView>(R.id.btnPrevApp)
         prev.setOnClickListener {
@@ -178,27 +184,7 @@ class StatusBarService : Service() {
         }
         updateSkipButton(view)
 
-        val audio = getSystemService(Context.AUDIO_SERVICE) as AudioManager
-        val volDown = view.findViewById<ImageView>(R.id.btnVolDown)
-        val volUp = view.findViewById<ImageView>(R.id.btnVolUp)
-        volDown.setOnClickListener {
-            audio.adjustStreamVolume(
-                AudioManager.STREAM_MUSIC, AudioManager.ADJUST_LOWER, AudioManager.FLAG_SHOW_UI
-            )
-        }
-        volUp.setOnClickListener {
-            audio.adjustStreamVolume(
-                AudioManager.STREAM_MUSIC, AudioManager.ADJUST_RAISE, AudioManager.FLAG_SHOW_UI
-            )
-        }
-        val toggleMute = android.view.View.OnLongClickListener {
-            audio.adjustStreamVolume(
-                AudioManager.STREAM_MUSIC, AudioManager.ADJUST_TOGGLE_MUTE, AudioManager.FLAG_SHOW_UI
-            )
-            true
-        }
-        volDown.setOnLongClickListener(toggleMute)
-        volUp.setOnLongClickListener(toggleMute)
+        view.findViewById<ImageView>(R.id.btnWifi).setOnClickListener { rescanWifi() }
 
         view.findViewById<ImageView>(R.id.iconBluetooth).setOnClickListener {
             try {
@@ -209,6 +195,93 @@ class StatusBarService : Service() {
                 // 設定画面が開けない場合は無視
             }
         }
+    }
+
+    /** 自作ランチャーのトップを開く（MainActivity は singleTask・onNewIntent で先頭へスクロール） */
+    private fun openLauncherTop() {
+        try {
+            startActivity(
+                Intent(this, MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            )
+        } catch (e: Exception) {
+            // 起動できない場合は無視
+        }
+    }
+
+    /** 前面が通常アプリならそのトップ画面へ戻す。通常アプリでなければ自作ランチャーを開く */
+    private fun goHomeOrAppTop() {
+        val pkg = if (LauncherAccessibilityService.isRunning) {
+            LauncherAccessibilityService.currentAppPackage()
+        } else null
+        val launch = pkg?.let { packageManager.getLaunchIntentForPackage(it) }
+        if (launch == null) {
+            openLauncherTop()
+            return
+        }
+        try {
+            launch.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK)
+            startActivity(launch)
+        } catch (e: Exception) {
+            openLauncherTop()
+        }
+    }
+
+    /** Wi-Fi再検索：スキャンを要求し、Wi-Fi設定パネルを開く */
+    @Suppress("DEPRECATION")
+    private fun rescanWifi() {
+        toast(R.string.bar_wifi_rescan)
+        try {
+            val wm = applicationContext.getSystemService(Context.WIFI_SERVICE) as? WifiManager
+            wm?.startScan()
+        } catch (e: Exception) {
+            // 権限不足・スロットリング等は無視
+        }
+        try {
+            val action = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                Settings.Panel.ACTION_WIFI
+            } else {
+                Settings.ACTION_WIFI_SETTINGS
+            }
+            startActivity(Intent(action).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+        } catch (e: Exception) {
+            // 設定画面が開けない場合は無視
+        }
+    }
+
+    private fun registerNetworkCallback() {
+        try {
+            val cm = getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
+            val cb = object : ConnectivityManager.NetworkCallback() {
+                override fun onCapabilitiesChanged(network: Network, caps: NetworkCapabilities) {
+                    val ok = caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET) &&
+                        caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED)
+                    handler.post { setWifiIconConnected(ok) }
+                }
+
+                override fun onLost(network: Network) {
+                    handler.post { setWifiIconConnected(false) }
+                }
+            }
+            cm.registerDefaultNetworkCallback(cb)
+            netCallback = cb
+        } catch (e: Exception) {
+            // 権限不足などは無視（アイコンは未接続表示のまま）
+        }
+    }
+
+    private fun unregisterNetworkCallback() {
+        val cb = netCallback ?: return
+        try {
+            val cm = getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
+            cm.unregisterNetworkCallback(cb)
+        } catch (e: Exception) {
+            // 未登録なら無視
+        }
+        netCallback = null
+    }
+
+    private fun setWifiIconConnected(connected: Boolean) {
+        overlayView?.findViewById<ImageView>(R.id.btnWifi)?.alpha = if (connected) 1.0f else 0.35f
     }
 
     private fun updateSkipButton(view: android.view.View) {
