@@ -52,6 +52,16 @@ object Prefs {
     fun setBackground(c: Context, uri: String?, isVideo: Boolean) =
         sp(c).edit().putString("background_uri", uri).putBoolean("background_is_video", isVideo).apply()
 
+    /** 背景の読み込み中フラグ（起動時に残っていたら前回クラッシュ等で落ちたと判断する） */
+    fun getBackgroundLoading(c: Context): Boolean = sp(c).getBoolean("background_loading", false)
+    fun setBackgroundLoading(c: Context, on: Boolean) =
+        sp(c).edit().putBoolean("background_loading", on).commit().let { }
+
+    /** 背景の連続読み込み失敗回数（成功でリセット） */
+    fun getBackgroundFailCount(c: Context): Int = sp(c).getInt("background_fail_count", 0)
+    fun setBackgroundFailCount(c: Context, n: Int) =
+        sp(c).edit().putInt("background_fail_count", n).apply()
+
     /** アイコンサイズ（dp）。48 / 64 / 80 / 96 のいずれか */
     fun getIconSizeDp(c: Context) = sp(c).getInt("icon_size_dp", 64)
     fun setIconSizeDp(c: Context, dp: Int) = sp(c).edit().putInt("icon_size_dp", dp).apply()

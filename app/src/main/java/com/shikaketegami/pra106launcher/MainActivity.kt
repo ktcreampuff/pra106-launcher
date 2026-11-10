@@ -2,6 +2,7 @@ package com.shikaketegami.pra106launcher
 
 import android.accessibilityservice.AccessibilityServiceInfo
 import android.app.Activity
+import android.content.ActivityNotFoundException
 import android.content.BroadcastReceiver
 import android.content.ComponentName
 import android.content.Context
@@ -10,13 +11,18 @@ import android.content.IntentFilter
 import android.content.pm.PackageManager
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
+import android.graphics.ImageDecoder
 import android.graphics.Matrix
 import android.graphics.SurfaceTexture
+import android.media.ExifInterface
+import android.media.MediaMetadataRetriever
 import android.media.MediaPlayer
 import android.net.Uri
+import android.os.Build
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
+import android.provider.OpenableColumns
 import android.provider.Settings
 import android.view.Surface
 import android.view.TextureView
@@ -32,6 +38,9 @@ import androidx.recyclerview.widget.GridLayoutManager
 import androidx.recyclerview.widget.ItemTouchHelper
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
+import java.io.File
+import java.io.FileOutputStream
+import java.io.IOException
 
 /**
  * ホーム画面本体。アプリのグリッド・ドック・並べ替え・非表示を扱う。
@@ -62,6 +71,12 @@ class MainActivity : Activity() {
     private var videoW = 0
     private var videoH = 0
     private var resumed = false
+    /** onStart〜onStop の間だけ true（プレイヤーはこの間だけ保持する） */
+    private var started = false
+    /** 動画の最初のフレームが描画済みか */
+    private var videoRendering = false
+    /** 読み込み失敗を処理済みの世代（同じ世代でToastや回数加算を重ねない） */
+    private var bgFailedGen = -1
     /** 背景の読み込み世代（古い非同期結果を捨てるため） */
     private var bgGeneration = 0
 
@@ -114,9 +129,7 @@ class MainActivity : Activity() {
         applyWidgetVisibility()
         bgVideo.surfaceTextureListener = object : TextureView.SurfaceTextureListener {
             override fun onSurfaceTextureAvailable(st: SurfaceTexture, width: Int, height: Int) {
-                if (Prefs.getBackgroundUri(this@MainActivity) != null &&
-                    Prefs.getBackgroundIsVideo(this@MainActivity)
-                ) startVideo(st)
+                if (started && player == null && bgFailedGen != bgGeneration && videoActive()) startVideo(st)
             }
 
             override fun onSurfaceTextureSizeChanged(st: SurfaceTexture, width: Int, height: Int) {
@@ -161,15 +174,30 @@ class MainActivity : Activity() {
         registerReceiver(packageReceiver, filter)
 
         refresh()
+        if (Prefs.getBackgroundLoading(this)) {
+            // 前回、背景の読み込み中に落ちた：背景を使わず解除する
+            Prefs.setBackgroundLoading(this, false)
+            deleteBackgroundFiles()
+            Prefs.setBackground(this, null, false)
+            Prefs.setBackgroundFailCount(this, 0)
+            Toast.makeText(this, R.string.home_background_crash_disabled, Toast.LENGTH_LONG).show()
+        }
         applyBackground()
     }
 
     override fun onStart() {
         super.onStart()
+        started = true
         widgetPanel.start()
+        // 動画はonStartで準備・再生、onStopで解放する
+        if (player == null && bgFailedGen != bgGeneration && videoActive() && bgVideo.isAvailable) {
+            bgVideo.surfaceTexture?.let { startVideo(it) }
+        }
     }
 
     override fun onStop() {
+        started = false
+        releasePlayer()
         widgetPanel.stop()
         super.onStop()
     }
@@ -360,7 +388,9 @@ class MainActivity : Activity() {
                 }
                 MENU_SET_BG -> pickBackground()
                 MENU_CLEAR_BG -> {
+                    deleteBackgroundFiles()
                     Prefs.setBackground(this, null, false)
+                    Prefs.setBackgroundFailCount(this, 0)
                     applyBackground()
                 }
                 MENU_RESET -> {
@@ -378,10 +408,11 @@ class MainActivity : Activity() {
             addCategory(Intent.CATEGORY_OPENABLE)
             type = "*/*"
             putExtra(Intent.EXTRA_MIME_TYPES, arrayOf("video/*", "image/*"))
-            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION)
         }
         try {
             startActivityForResult(intent, REQUEST_BACKGROUND)
+        } catch (e: ActivityNotFoundException) {
+            Toast.makeText(this, R.string.home_picker_not_found, Toast.LENGTH_SHORT).show()
         } catch (e: Exception) {
             Toast.makeText(this, R.string.home_background_open_failed, Toast.LENGTH_SHORT).show()
         }
@@ -393,79 +424,252 @@ class MainActivity : Activity() {
         if (widgetPanel.handleActivityResult(requestCode, resultCode, data)) return
         if (requestCode != REQUEST_BACKGROUND || resultCode != RESULT_OK) return
         val uri = data?.data ?: return
-        try {
-            contentResolver.takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION)
-        } catch (e: Exception) {
-            // 永続化できなくても、今回は表示を試みる
-        }
-        val isVideo = contentResolver.getType(uri)?.startsWith("video/") == true
-        Prefs.setBackground(this, uri.toString(), isVideo)
-        applyBackground()
+        importBackground(uri)
     }
 
-    /** 保存済みの背景設定を画面に反映する */
-    private fun applyBackground() {
-        bgGeneration++
-        releasePlayer()
-        val uriStr = Prefs.getBackgroundUri(this)
-        if (uriStr == null) {
-            bgVideo.visibility = View.GONE
-            bgImage.visibility = View.GONE
-            bgImage.setImageDrawable(null)
-            bgScrim.visibility = View.GONE
-            return
-        }
-        bgScrim.visibility = View.VISIBLE
-        if (Prefs.getBackgroundIsVideo(this)) {
-            bgImage.visibility = View.GONE
-            bgImage.setImageDrawable(null)
-            bgVideo.visibility = View.VISIBLE
-            // 既に Surface があれば直接開始、無ければ onSurfaceTextureAvailable で開始
-            if (bgVideo.isAvailable) bgVideo.surfaceTexture?.let { startVideo(it) }
-        } else {
-            bgVideo.visibility = View.GONE
-            loadBackgroundImage(Uri.parse(uriStr))
-        }
-    }
-
-    /** 画像を画面サイズ程度に縮小して読み込む */
-    private fun loadBackgroundImage(uri: Uri) {
-        val gen = bgGeneration
+    /**
+     * 選んだファイルを filesDir/background.<拡張子> へコピーして、以後はそのコピーだけを参照する。
+     * 動画ならポスター画像も作る。コピーはIOスレッドで行い、失敗しても既存の設定は変えない。
+     */
+    private fun importBackground(uri: Uri) {
+        Toast.makeText(this, R.string.home_background_importing, Toast.LENGTH_SHORT).show()
+        val app = applicationContext
+        val mime = contentResolver.getType(uri)
+        val dir = filesDir
         val dm = resources.displayMetrics
-        val reqW = dm.widthPixels
-        val reqH = dm.heightPixels
         Thread {
-            var bmp: Bitmap? = null
+            var ok = false
+            var isVideo = false
+            var highRes = false
+            var dest: File? = null
+            val tmp = File(dir, BG_TMP_NAME)
             try {
-                val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
-                contentResolver.openInputStream(uri)?.use { BitmapFactory.decodeStream(it, null, bounds) }
-                var sample = 1
-                while (bounds.outWidth / (sample * 2) >= reqW && bounds.outHeight / (sample * 2) >= reqH) {
-                    sample *= 2
+                val name = try {
+                    contentResolver.query(uri, arrayOf(OpenableColumns.DISPLAY_NAME), null, null, null)
+                        ?.use { if (it.moveToFirst()) it.getString(0) else null }
+                } catch (e: Exception) {
+                    null
                 }
-                val opts = BitmapFactory.Options().apply { inSampleSize = sample }
-                bmp = contentResolver.openInputStream(uri)?.use { BitmapFactory.decodeStream(it, null, opts) }
-            } catch (e: Exception) {
-                bmp = null
+                val ext0 = (name ?: uri.lastPathSegment ?: "").substringAfterLast('.', "").lowercase()
+                isVideo = when {
+                    mime?.startsWith("video/") == true -> true
+                    mime?.startsWith("image/") == true -> false
+                    else -> ext0 in VIDEO_EXTS
+                }
+                val ext = if (ext0.isNotEmpty() && ext0.length <= 5 && ext0.all { it.isLetterOrDigit() }) ext0
+                else if (isVideo) "mp4" else "jpg"
+                val input = contentResolver.openInputStream(uri) ?: throw IOException("open failed")
+                input.use { i -> FileOutputStream(tmp).use { o -> i.copyTo(o) } }
+                // コピー成功後に古いコピーを消して差し替える
+                deleteBackgroundFiles(dir, BG_TMP_NAME)
+                val d = File(dir, "$BG_BASE_NAME.$ext")
+                if (!tmp.renameTo(d)) throw IOException("rename failed")
+                dest = d
+                if (isVideo) highRes = makePoster(d, File(dir, BG_POSTER_NAME), maxOf(dm.widthPixels, dm.heightPixels))
+                ok = true
+            } catch (e: Throwable) {
+                ok = false
             }
-            val result = bmp
+            if (ok && dest != null) {
+                Prefs.setBackground(app, "file://" + dest.absolutePath, isVideo)
+                Prefs.setBackgroundFailCount(app, 0)
+            } else {
+                tmp.delete()
+            }
             handler.post {
-                if (isDestroyed || gen != bgGeneration) return@post
-                if (result == null) {
-                    onBackgroundFailed()
+                if (ok) {
+                    Toast.makeText(app, R.string.home_background_set_done, Toast.LENGTH_SHORT).show()
+                    if (highRes) Toast.makeText(app, R.string.home_background_high_res, Toast.LENGTH_LONG).show()
+                    if (!isDestroyed) applyBackground()
                 } else {
-                    bgImage.setImageBitmap(result)
-                    bgImage.visibility = View.VISIBLE
+                    Toast.makeText(app, R.string.home_background_import_failed, Toast.LENGTH_SHORT).show()
                 }
             }
         }.start()
     }
 
+    /** 動画の1フレームをポスターとして保存する。戻り値は「長辺が1920pxを超える動画か」 */
+    private fun makePoster(video: File, poster: File, screenLong: Int): Boolean {
+        var highRes = false
+        val r = MediaMetadataRetriever()
+        try {
+            r.setDataSource(video.absolutePath)
+            val w = r.extractMetadata(MediaMetadataRetriever.METADATA_KEY_VIDEO_WIDTH)?.toIntOrNull() ?: 0
+            val h = r.extractMetadata(MediaMetadataRetriever.METADATA_KEY_VIDEO_HEIGHT)?.toIntOrNull() ?: 0
+            highRes = maxOf(w, h) > 1920
+            val frame = r.getFrameAtTime(0)
+            if (frame != null) {
+                val limit = maxOf(screenLong, 1280)
+                val longSide = maxOf(frame.width, frame.height)
+                val out = if (longSide > limit) {
+                    val s = limit.toFloat() / longSide
+                    Bitmap.createScaledBitmap(
+                        frame,
+                        maxOf(1, (frame.width * s).toInt()),
+                        maxOf(1, (frame.height * s).toInt()),
+                        true
+                    )
+                } else frame
+                FileOutputStream(poster).use { out.compress(Bitmap.CompressFormat.JPEG, 90, it) }
+            }
+        } catch (e: Throwable) {
+            poster.delete()
+        } finally {
+            try {
+                r.release()
+            } catch (e: Throwable) {
+                // 無視
+            }
+        }
+        return highRes
+    }
+
+    /** 背景関連のコピー（background*）を filesDir から削除する。keep に指定した名前は残す */
+    private fun deleteBackgroundFiles(dir: File = filesDir, keep: String? = null) {
+        dir.listFiles()?.forEach {
+            if (it.name.startsWith(BG_BASE_NAME) && it.name != keep) it.delete()
+        }
+    }
+
+    /** 保存済みの背景ファイル（file:// のコピー）。未設定や旧形式なら null */
+    private fun backgroundFile(): File? {
+        val u = Prefs.getBackgroundUri(this) ?: return null
+        return if (u.startsWith("file://")) File(u.removePrefix("file://")) else null
+    }
+
+    private fun videoActive(): Boolean =
+        Prefs.getBackgroundUri(this) != null && Prefs.getBackgroundIsVideo(this)
+
+    /** 保存済みの背景設定を画面に反映する */
+    private fun applyBackground() {
+        bgGeneration++
+        releasePlayer()
+        bgImage.setImageDrawable(null)
+        val uriStr = Prefs.getBackgroundUri(this)
+        if (uriStr == null) {
+            hideBackgroundViews()
+            return
+        }
+        val file = backgroundFile()
+        if (file == null) {
+            // 旧形式（content://）の設定は使えないので解除する
+            Prefs.setBackground(this, null, false)
+            hideBackgroundViews()
+            return
+        }
+        if (!file.exists()) {
+            onBackgroundFailed()
+            return
+        }
+        bgScrim.visibility = View.VISIBLE
+        if (Prefs.getBackgroundIsVideo(this)) {
+            bgImage.visibility = View.GONE
+            bgVideo.visibility = View.VISIBLE
+            val poster = File(file.parentFile, BG_POSTER_NAME)
+            if (poster.exists()) loadBackgroundImage(poster, true)
+            // 既に Surface があれば直接開始、無ければ onSurfaceTextureAvailable で開始
+            if (started && bgVideo.isAvailable) bgVideo.surfaceTexture?.let { startVideo(it) }
+        } else {
+            bgVideo.visibility = View.GONE
+            loadBackgroundImage(file, false)
+        }
+    }
+
+    private fun hideBackgroundViews() {
+        bgVideo.visibility = View.GONE
+        bgImage.visibility = View.GONE
+        bgImage.setImageDrawable(null)
+        bgScrim.visibility = View.GONE
+    }
+
+    /** 画像を縮小して読み込む（総画素数が画面の2倍以下になるまで縮小）。poster=true は動画のポスター */
+    private fun loadBackgroundImage(file: File, poster: Boolean) {
+        val gen = bgGeneration
+        val dm = resources.displayMetrics
+        val reqW = dm.widthPixels
+        val reqH = dm.heightPixels
+        val app = applicationContext
+        Prefs.setBackgroundLoading(app, true)
+        Thread {
+            var bmp: Bitmap? = null
+            try {
+                bmp = decodeBitmap(file, reqW, reqH)
+            } catch (e: Throwable) {
+                bmp = null
+            }
+            Prefs.setBackgroundLoading(app, false)
+            val result = bmp
+            handler.post {
+                if (isDestroyed || gen != bgGeneration) return@post
+                if (result == null) {
+                    if (!poster) onBackgroundFailed()
+                } else {
+                    bgImage.setImageBitmap(result)
+                    // 動画が既に描画中ならポスターは隠したまま
+                    if (!poster || !videoRendering) bgImage.visibility = View.VISIBLE
+                    if (!poster) Prefs.setBackgroundFailCount(this, 0)
+                }
+            }
+        }.start()
+    }
+
+    /** EXIF回転を反映しつつ、総画素数が画面画素数の2倍以下になるよう縮小して読み込む */
+    private fun decodeBitmap(file: File, reqW: Int, reqH: Int): Bitmap? {
+        val limit = 2L * reqW * reqH
+        if (Build.VERSION.SDK_INT >= 28) {
+            val source = ImageDecoder.createSource(file)
+            return ImageDecoder.decodeBitmap(source) { decoder, info, _ ->
+                val w = info.size.width.toLong()
+                val h = info.size.height.toLong()
+                var s = 1
+                while ((w / s) * (h / s) > limit) s *= 2
+                if (s > 1) decoder.setTargetSampleSize(s)
+                decoder.allocator = ImageDecoder.ALLOCATOR_SOFTWARE
+            }
+        }
+        val path = file.absolutePath
+        val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+        BitmapFactory.decodeFile(path, bounds)
+        if (bounds.outWidth <= 0 || bounds.outHeight <= 0) return null
+        var sample = 1
+        while ((bounds.outWidth.toLong() / sample) * (bounds.outHeight.toLong() / sample) > limit) sample *= 2
+        val opts = BitmapFactory.Options().apply { inSampleSize = sample }
+        val bmp = BitmapFactory.decodeFile(path, opts) ?: return null
+        val orientation = try {
+            ExifInterface(path).getAttributeInt(ExifInterface.TAG_ORIENTATION, ExifInterface.ORIENTATION_NORMAL)
+        } catch (e: Exception) {
+            ExifInterface.ORIENTATION_NORMAL
+        }
+        val m = Matrix()
+        when (orientation) {
+            ExifInterface.ORIENTATION_ROTATE_90 -> m.postRotate(90f)
+            ExifInterface.ORIENTATION_ROTATE_180 -> m.postRotate(180f)
+            ExifInterface.ORIENTATION_ROTATE_270 -> m.postRotate(270f)
+            ExifInterface.ORIENTATION_FLIP_HORIZONTAL -> m.postScale(-1f, 1f)
+            ExifInterface.ORIENTATION_FLIP_VERTICAL -> m.postScale(1f, -1f)
+            ExifInterface.ORIENTATION_TRANSPOSE -> {
+                m.postRotate(90f)
+                m.postScale(-1f, 1f)
+            }
+            ExifInterface.ORIENTATION_TRANSVERSE -> {
+                m.postRotate(270f)
+                m.postScale(-1f, 1f)
+            }
+        }
+        if (m.isIdentity) return bmp
+        val rotated = Bitmap.createBitmap(bmp, 0, 0, bmp.width, bmp.height, m, true)
+        if (rotated !== bmp) bmp.recycle()
+        return rotated
+    }
+
     private fun startVideo(st: SurfaceTexture) {
-        val uriStr = Prefs.getBackgroundUri(this) ?: return
+        val file = backgroundFile() ?: return
+        if (bgFailedGen == bgGeneration) return
         releasePlayer()
         videoW = 0
         videoH = 0
+        videoRendering = false
+        Prefs.setBackgroundLoading(this, true)
         try {
             val surface = Surface(st)
             playerSurface = surface
@@ -473,7 +677,7 @@ class MainActivity : Activity() {
             player = mp
             playerPrepared = false
             mp.setSurface(surface)
-            mp.setDataSource(this, Uri.parse(uriStr))
+            mp.setDataSource(file.absolutePath)
             mp.isLooping = true
             mp.setVolume(0f, 0f)
             mp.setOnVideoSizeChangedListener { _, w, h ->
@@ -487,12 +691,22 @@ class MainActivity : Activity() {
                 updateVideoTransform()
                 if (resumed) it.start()
             }
+            mp.setOnInfoListener { _, what, _ ->
+                if (what == MediaPlayer.MEDIA_INFO_VIDEO_RENDERING_START && player === mp) {
+                    // 最初のフレームが描画されてからポスターを外して動画を見せる
+                    videoRendering = true
+                    bgImage.visibility = View.GONE
+                    Prefs.setBackgroundLoading(this, false)
+                    Prefs.setBackgroundFailCount(this, 0)
+                }
+                false
+            }
             mp.setOnErrorListener { _, _, _ ->
                 if (player === mp) onBackgroundFailed()
                 true
             }
             mp.prepareAsync()
-        } catch (e: Exception) {
+        } catch (e: Throwable) {
             onBackgroundFailed()
         }
     }
@@ -510,24 +724,46 @@ class MainActivity : Activity() {
 
     private fun releasePlayer() {
         playerPrepared = false
+        videoRendering = false
         player?.let {
             try {
                 it.setOnErrorListener(null)
                 it.setOnPreparedListener(null)
+                it.setOnInfoListener(null)
                 it.release()
             } catch (e: Exception) {
                 // 無視
             }
         }
+        val hadPlayer = player != null
         player = null
         playerSurface?.release()
         playerSurface = null
+        if (hadPlayer) {
+            Prefs.setBackgroundLoading(this, false)
+            // 動画を止めたらポスターを再表示する
+            if (videoActive() && bgImage.drawable != null) bgImage.visibility = View.VISIBLE
+        }
     }
 
-    /** 背景ファイルが読めないとき：背景を解除して通知 */
+    /**
+     * 背景の読み込みに失敗したとき。設定は消さず、この回は背景なしで表示する。
+     * Toast は1回だけ。連続3回失敗したら背景を解除する。
+     */
     private fun onBackgroundFailed() {
-        Prefs.setBackground(this, null, false)
-        applyBackground()
+        if (bgFailedGen == bgGeneration) return
+        bgFailedGen = bgGeneration
+        releasePlayer()
+        Prefs.setBackgroundLoading(this, false)
+        hideBackgroundViews()
+        val n = Prefs.getBackgroundFailCount(this) + 1
+        if (n >= MAX_BG_FAILS) {
+            deleteBackgroundFiles()
+            Prefs.setBackground(this, null, false)
+            Prefs.setBackgroundFailCount(this, 0)
+        } else {
+            Prefs.setBackgroundFailCount(this, n)
+        }
         Toast.makeText(this, R.string.home_background_open_failed, Toast.LENGTH_SHORT).show()
     }
 
@@ -741,5 +977,10 @@ class MainActivity : Activity() {
         private const val MENU_SET_BG = 17
         private const val MENU_CLEAR_BG = 18
         private const val REQUEST_BACKGROUND = 100
+        private const val BG_BASE_NAME = "background"
+        private const val BG_TMP_NAME = "background_tmp"
+        private const val BG_POSTER_NAME = "background_poster.jpg"
+        private const val MAX_BG_FAILS = 3
+        private val VIDEO_EXTS = setOf("mp4", "mkv", "webm", "3gp", "mov")
     }
 }

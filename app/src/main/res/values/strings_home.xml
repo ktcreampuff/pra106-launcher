@@ -21,6 +21,12 @@
     <string name="home_menu_set_background">背景を設定（動画・画像）</string>
     <string name="home_menu_clear_background">背景を解除</string>
     <string name="home_background_open_failed">背景ファイルを開けませんでした</string>
+    <string name="home_background_importing">背景を取り込み中…</string>
+    <string name="home_background_set_done">背景を設定しました</string>
+    <string name="home_background_import_failed">背景を取り込めませんでした</string>
+    <string name="home_background_crash_disabled">前回、背景の読み込みに失敗したため背景を無効にしました</string>
+    <string name="home_background_high_res">高解像度の動画は発熱しやすいため、1080p以下を推奨します</string>
+    <string name="home_picker_not_found">この端末ではファイル選択画面を開けません</string>
     <string name="home_menu_group_edit">編集</string>
     <string name="home_menu_group_other">その他</string>
     <string name="home_menu_icon_size">アイコンの大きさ</string>
