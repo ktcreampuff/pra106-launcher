@@ -24,18 +24,18 @@ import android.os.IBinder
 import android.os.Looper
 import android.provider.Settings
 import android.view.Gravity
-import android.view.MotionEvent
 import android.view.View
 import android.view.LayoutInflater
-import android.view.ViewConfiguration
 import android.view.WindowManager
+import android.widget.FrameLayout
+import android.widget.ImageView
 import android.widget.TextView
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 
 /**
- * 画面右端に常時小さく表示する「つまみ（ハンドル）」と、タップ/スワイプで呼び出す縦型の操作パネル
+ * 画面右端に常時小さく表示する「つまみ（ハンドル）」と、タップで呼び出す縦型の操作パネル
  * （時計・Wi-Fi再検索・Bluetooth・AutoSkip切替・直前アプリ・ホーム・戻る）を重ねて表示するフォアグラウンドサービス。
  * パネルは一定時間操作がないと自動的にスライドして隠れる。
  * 注意：これは「追加表示」であり、PRA106純正のSystemUIバーを消すものではない
@@ -73,6 +73,12 @@ class StatusBarService : Service() {
         private const val NOTIFICATION_ID = 1
         private const val AUTO_HIDE_DELAY_MS = 4500L
         private const val ANIM_DURATION_MS = 200L
+        /** タップ可能領域の幅（見た目の帯より広く取り、誤タップしにくくする） */
+        private const val HANDLE_TOUCH_WIDTH_DP = 48
+        /** ハンドルの高さ（画面中央付近に限定し、他アプリの端スワイプと競合しないようにする） */
+        private const val HANDLE_HEIGHT_DP = 160
+        /** 見た目の帯の太さ（従来どおり細いまま） */
+        private const val HANDLE_VISUAL_WIDTH_DP = 14
 
         fun start(context: Context) {
             val intent = Intent(context, StatusBarService::class.java)
@@ -132,59 +138,50 @@ class StatusBarService : Service() {
 
     override fun onBind(intent: Intent?): IBinder? = null
 
-    /** 画面右端に常時表示する、細い半透明のつまみ（タップ/スワイプでパネルを呼び出す） */
-    @SuppressLint("ClickableViewAccessibility")
+    /**
+     * 画面右端・中央付近に常時表示する、細い半透明のつまみ。
+     * 見た目の帯は細いままだが、実際のタップ可能領域は48dp幅の透明な枠で広く取る。
+     * スワイプでの開閉は誤作動の原因になるため廃止し、タップのみでパネルをトグルする。
+     * 高さは画面中央付近の固定値に限定し、残りの右端は他アプリの端スワイプのためにタッチを透過させる。
+     */
     private fun showHandle() {
         if (!Settings.canDrawOverlays(this)) return
         if (handleView != null) return
 
-        val view = View(this)
-        view.setBackgroundResource(R.drawable.bar_handle_bg)
-        view.contentDescription = getString(R.string.bar_handle_desc)
+        val density = resources.displayMetrics.density
+        val touchWidthPx = (HANDLE_TOUCH_WIDTH_DP * density).toInt()
+        val handleHeightPx = (HANDLE_HEIGHT_DP * density).toInt()
+        val visualWidthPx = (HANDLE_VISUAL_WIDTH_DP * density).toInt()
 
-        val handleWidthPx = (14 * resources.displayMetrics.density).toInt()
-        val swipeThresholdPx = ViewConfiguration.get(this).scaledTouchSlop * 2
+        // タップ可能領域（透明）の中に、見た目の帯（視覚的に細い）を右端寄せで重ねる
+        val container = FrameLayout(this)
+        container.contentDescription = getString(R.string.bar_handle_desc)
+
+        val strip = View(this)
+        strip.setBackgroundResource(R.drawable.bar_handle_bg)
+        val stripParams = FrameLayout.LayoutParams(visualWidthPx, FrameLayout.LayoutParams.MATCH_PARENT)
+        stripParams.gravity = Gravity.END
+        container.addView(strip, stripParams)
+
+        container.isClickable = true
+        container.setOnClickListener {
+            if (panelVisible) hidePanel() else showPanel()
+        }
 
         val overlayType = WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY
         val params = WindowManager.LayoutParams(
-            handleWidthPx,
-            WindowManager.LayoutParams.MATCH_PARENT,
+            touchWidthPx,
+            handleHeightPx,
             overlayType,
             WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
                 WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN,
             PixelFormat.TRANSLUCENT
         )
-        params.gravity = Gravity.END or Gravity.TOP
-
-        var downX = 0f
-        var moved = false
-        view.setOnTouchListener { _, event ->
-            when (event.actionMasked) {
-                MotionEvent.ACTION_DOWN -> {
-                    downX = event.rawX
-                    moved = false
-                    true
-                }
-                MotionEvent.ACTION_MOVE -> {
-                    if (!moved && downX - event.rawX > swipeThresholdPx) {
-                        moved = true
-                        showPanel()
-                    }
-                    true
-                }
-                MotionEvent.ACTION_UP -> {
-                    if (!moved) {
-                        if (panelVisible) hidePanel() else showPanel()
-                    }
-                    true
-                }
-                else -> false
-            }
-        }
+        params.gravity = Gravity.END or Gravity.CENTER_VERTICAL
 
         try {
-            windowManager.addView(view, params)
-            handleView = view
+            windowManager.addView(container, params)
+            handleView = container
         } catch (e: Exception) {
             // オーバーレイ権限が途中で取り消された場合など
         }
@@ -269,10 +266,22 @@ class StatusBarService : Service() {
         Toast.makeText(this, resId, Toast.LENGTH_SHORT).show()
     }
 
-    /** ユーザー補助が無効なら案内Toastを出して false を返す */
+    /**
+     * ユーザー補助が無効なら案内Toastを出し、さらに自作ランチャー（MainActivity）を前面に呼び出して
+     * 許可バナーの導線につなげる。運転中でも原因と対処がその場で分かるようにするため。
+     */
     private fun requireAccessibility(): Boolean {
         if (LauncherAccessibilityService.isRunning) return true
         toast(R.string.bar_need_accessibility)
+        try {
+            startActivity(
+                Intent(this, MainActivity::class.java).addFlags(
+                    Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_REORDER_TO_FRONT
+                )
+            )
+        } catch (e: Exception) {
+            // 起動できない場合は無視
+        }
         return false
     }
 
@@ -414,7 +423,9 @@ class StatusBarService : Service() {
     }
 
     private fun setWifiIconConnected(connected: Boolean) {
-        panelView?.findViewById<View>(R.id.btnWifi)?.alpha = if (connected) 1.0f else 0.35f
+        panelView?.findViewById<ImageView>(R.id.iconWifiImg)?.setImageResource(
+            if (connected) R.drawable.bar_ic_wifi_on else R.drawable.bar_ic_wifi_off
+        )
     }
 
     private fun updateSkipButton(view: View) {
@@ -433,14 +444,14 @@ class StatusBarService : Service() {
 
     @SuppressLint("MissingPermission")
     private fun updateBluetoothIcon(view: View) {
-        val icon = view.findViewById<View>(R.id.iconBluetooth)
+        val icon = view.findViewById<ImageView>(R.id.iconBluetoothImg)
         val on = try {
             val manager = getSystemService(Context.BLUETOOTH_SERVICE) as? BluetoothManager
             manager?.adapter?.isEnabled == true
         } catch (e: SecurityException) {
             false
         }
-        icon.alpha = if (on) 1.0f else 0.35f
+        icon.setImageResource(if (on) R.drawable.bar_ic_bluetooth_on else R.drawable.bar_ic_bluetooth_off)
     }
 
     private fun buildNotification(): Notification {

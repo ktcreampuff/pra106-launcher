@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- 画面右端からスライドして出てくる縦型の操作パネル。通常は隠れていて、ハンドルのタップ/スワイプで表示される。 -->
+<!-- 画面右端からスライドして出てくる縦型の操作パネル。通常は隠れていて、ハンドルのタップで表示される。 -->
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="wrap_content"
     android:layout_height="wrap_content"
@@ -28,9 +28,8 @@
         android:background="?android:attr/selectableItemBackgroundBorderless"
         android:clickable="true"
         android:focusable="false"
-        android:alpha="0.35"
         android:contentDescription="@string/bar_wifi_rescan">
-        <ImageView android:layout_width="24dp" android:layout_height="24dp" android:layout_gravity="center" android:src="@drawable/bar_ic_wifi" android:importantForAccessibility="no" />
+        <ImageView android:id="@+id/iconWifiImg" android:layout_width="24dp" android:layout_height="24dp" android:layout_gravity="center" android:src="@drawable/bar_ic_wifi_off" android:importantForAccessibility="no" />
     </FrameLayout>
 
     <FrameLayout
@@ -40,9 +39,8 @@
         android:background="?android:attr/selectableItemBackgroundBorderless"
         android:clickable="true"
         android:focusable="false"
-        android:alpha="0.35"
         android:contentDescription="@string/bar_bluetooth">
-        <ImageView android:layout_width="24dp" android:layout_height="24dp" android:layout_gravity="center" android:src="@drawable/bar_ic_bluetooth" android:importantForAccessibility="no" />
+        <ImageView android:id="@+id/iconBluetoothImg" android:layout_width="24dp" android:layout_height="24dp" android:layout_gravity="center" android:src="@drawable/bar_ic_bluetooth_off" android:importantForAccessibility="no" />
     </FrameLayout>
 
     <FrameLayout
@@ -53,7 +51,16 @@
         android:clickable="true"
         android:focusable="false"
         android:contentDescription="@string/bar_skip_desc">
-        <View android:id="@+id/skipDot" android:layout_width="22dp" android:layout_height="22dp" android:layout_gravity="center" android:background="@drawable/bar_skip_off" />
+        <View android:id="@+id/skipDot" android:layout_width="18dp" android:layout_height="18dp" android:layout_gravity="center" android:layout_marginBottom="10dp" android:background="@drawable/bar_skip_off" />
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_gravity="center|bottom"
+            android:layout_marginBottom="4dp"
+            android:text="@string/bar_skip"
+            android:textColor="#D4D4D4"
+            android:textSize="9sp"
+            android:importantForAccessibility="no" />
     </FrameLayout>
 
     <View
@@ -72,6 +79,15 @@
         android:focusable="false"
         android:contentDescription="@string/bar_prev_app">
         <ImageView android:layout_width="24dp" android:layout_height="24dp" android:layout_gravity="center" android:src="@drawable/bar_ic_prev" android:importantForAccessibility="no" />
+        <!-- 長押しで別操作があることを示す目印 -->
+        <View
+            android:layout_width="6dp"
+            android:layout_height="6dp"
+            android:layout_gravity="top|end"
+            android:layout_marginTop="4dp"
+            android:layout_marginEnd="4dp"
+            android:background="@drawable/bar_longpress_hint"
+            android:importantForAccessibility="no" />
     </FrameLayout>
 
     <FrameLayout
@@ -83,6 +99,15 @@
         android:focusable="false"
         android:contentDescription="@string/bar_home">
         <ImageView android:layout_width="24dp" android:layout_height="24dp" android:layout_gravity="center" android:src="@drawable/bar_ic_home" android:importantForAccessibility="no" />
+        <!-- 長押しで別操作があることを示す目印 -->
+        <View
+            android:layout_width="6dp"
+            android:layout_height="6dp"
+            android:layout_gravity="top|end"
+            android:layout_marginTop="4dp"
+            android:layout_marginEnd="4dp"
+            android:background="@drawable/bar_longpress_hint"
+            android:importantForAccessibility="no" />
     </FrameLayout>
 
     <FrameLayout

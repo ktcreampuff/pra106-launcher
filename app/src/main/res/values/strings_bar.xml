@@ -1,7 +1,7 @@
 <resources>
     <string name="bar_back">戻る</string>
-    <string name="bar_home">ホーム</string>
-    <string name="bar_prev_app">直前のアプリ</string>
+    <string name="bar_home">ホーム（長押しでランチャートップを開く）</string>
+    <string name="bar_prev_app">直前のアプリ（長押しで最近使用したアプリ一覧）</string>
     <string name="bar_skip">SKIP</string>
     <string name="bar_skip_desc">AutoSkip切替</string>
     <string name="bar_bluetooth">Bluetooth</string>
