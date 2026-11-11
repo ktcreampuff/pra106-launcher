@@ -1,31 +1,30 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- 操作ボタンは運転席側（右）。文字ラベルなし、アイコンのみ。各ボタン 56x44dp -->
+<!-- 画面右端からスライドして出てくる縦型の操作パネル。通常は隠れていて、ハンドルのタップ/スワイプで表示される。 -->
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
-    android:layout_width="match_parent"
-    android:layout_height="44dp"
-    android:background="#E6000000"
-    android:orientation="horizontal"
-    android:gravity="center_vertical"
-    android:paddingStart="14dp"
-    android:paddingEnd="4dp">
+    android:layout_width="wrap_content"
+    android:layout_height="wrap_content"
+    android:background="@drawable/bar_panel_bg"
+    android:orientation="vertical"
+    android:gravity="center_horizontal"
+    android:paddingTop="8dp"
+    android:paddingBottom="8dp"
+    android:paddingStart="2dp"
+    android:paddingEnd="6dp">
 
     <TextView
         android:id="@+id/clock"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
+        android:layout_marginBottom="6dp"
+        android:gravity="center"
         android:textColor="#D4D4D4"
-        android:textSize="15sp"
+        android:textSize="12sp"
         android:text="00:00" />
-
-    <View
-        android:layout_width="0dp"
-        android:layout_height="match_parent"
-        android:layout_weight="1" />
 
     <FrameLayout
         android:id="@+id/btnWifi"
-        android:layout_width="56dp"
-        android:layout_height="match_parent"
+        android:layout_width="48dp"
+        android:layout_height="48dp"
         android:background="?android:attr/selectableItemBackgroundBorderless"
         android:clickable="true"
         android:focusable="false"
@@ -36,8 +35,8 @@
 
     <FrameLayout
         android:id="@+id/iconBluetooth"
-        android:layout_width="56dp"
-        android:layout_height="match_parent"
+        android:layout_width="48dp"
+        android:layout_height="48dp"
         android:background="?android:attr/selectableItemBackgroundBorderless"
         android:clickable="true"
         android:focusable="false"
@@ -48,8 +47,8 @@
 
     <FrameLayout
         android:id="@+id/btnSkip"
-        android:layout_width="56dp"
-        android:layout_height="match_parent"
+        android:layout_width="48dp"
+        android:layout_height="48dp"
         android:background="?android:attr/selectableItemBackgroundBorderless"
         android:clickable="true"
         android:focusable="false"
@@ -58,16 +57,16 @@
     </FrameLayout>
 
     <View
-        android:layout_width="1dp"
-        android:layout_height="22dp"
-        android:layout_marginStart="6dp"
-        android:layout_marginEnd="6dp"
+        android:layout_width="28dp"
+        android:layout_height="1dp"
+        android:layout_marginTop="6dp"
+        android:layout_marginBottom="6dp"
         android:background="#5A5A5A" />
 
     <FrameLayout
         android:id="@+id/btnPrevApp"
-        android:layout_width="56dp"
-        android:layout_height="match_parent"
+        android:layout_width="48dp"
+        android:layout_height="48dp"
         android:background="?android:attr/selectableItemBackgroundBorderless"
         android:clickable="true"
         android:focusable="false"
@@ -77,8 +76,8 @@
 
     <FrameLayout
         android:id="@+id/btnHome"
-        android:layout_width="56dp"
-        android:layout_height="match_parent"
+        android:layout_width="48dp"
+        android:layout_height="48dp"
         android:background="?android:attr/selectableItemBackgroundBorderless"
         android:clickable="true"
         android:focusable="false"
@@ -88,8 +87,8 @@
 
     <FrameLayout
         android:id="@+id/btnBack"
-        android:layout_width="56dp"
-        android:layout_height="match_parent"
+        android:layout_width="48dp"
+        android:layout_height="48dp"
         android:background="?android:attr/selectableItemBackgroundBorderless"
         android:clickable="true"
         android:focusable="false"

@@ -11,4 +11,5 @@
     <string name="bar_skip_off">AutoSkip：OFF</string>
     <string name="bar_wifi">Wi-Fi再検索</string>
     <string name="bar_wifi_rescan">Wi-Fiを再検索します</string>
+    <string name="bar_handle_desc">操作パネルを表示</string>
 </resources>

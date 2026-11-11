@@ -24,29 +24,35 @@ import android.os.IBinder
 import android.os.Looper
 import android.provider.Settings
 import android.view.Gravity
+import android.view.MotionEvent
 import android.view.View
 import android.view.LayoutInflater
+import android.view.ViewConfiguration
 import android.view.WindowManager
-import android.widget.ImageView
 import android.widget.TextView
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 
 /**
- * 画面上部に簡易ステータスバー（時計・Wi-Fi再検索・Bluetooth・AutoSkip切替・直前アプリ・ホーム・戻る。操作ボタンは右ハンドル車に合わせて右寄せ）を重ねて表示するフォアグラウンドサービス。
+ * 画面右端に常時小さく表示する「つまみ（ハンドル）」と、タップ/スワイプで呼び出す縦型の操作パネル
+ * （時計・Wi-Fi再検索・Bluetooth・AutoSkip切替・直前アプリ・ホーム・戻る）を重ねて表示するフォアグラウンドサービス。
+ * パネルは一定時間操作がないと自動的にスライドして隠れる。
  * 注意：これは「追加表示」であり、PRA106純正のSystemUIバーを消すものではない
  * （root権限がないため、純正バーの非表示化は不可）。
  */
 class StatusBarService : Service() {
 
     private lateinit var windowManager: WindowManager
-    private var overlayView: android.view.View? = null
+    private var handleView: View? = null
+    private var panelView: View? = null
+    private lateinit var panelParams: WindowManager.LayoutParams
+    private var panelVisible = false
     private val handler = Handler(Looper.getMainLooper())
 
     private val btReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context?, intent: Intent?) {
-            overlayView?.let { updateBluetoothIcon(it) }
+            panelView?.let { updateBluetoothIcon(it) }
         }
     }
     private var btReceiverRegistered = false
@@ -60,9 +66,13 @@ class StatusBarService : Service() {
         }
     }
 
+    private val hideRunnable = Runnable { hidePanel() }
+
     companion object {
         private const val CHANNEL_ID = "status_bar_overlay"
         private const val NOTIFICATION_ID = 1
+        private const val AUTO_HIDE_DELAY_MS = 4500L
+        private const val ANIM_DURATION_MS = 200L
 
         fun start(context: Context) {
             val intent = Intent(context, StatusBarService::class.java)
@@ -79,7 +89,8 @@ class StatusBarService : Service() {
         windowManager = getSystemService(Context.WINDOW_SERVICE) as WindowManager
         startForeground(NOTIFICATION_ID, buildNotification())
         Prefs.load(this)
-        showOverlay()
+        showHandle()
+        showPanelWindow()
         registerReceiver(btReceiver, IntentFilter(BluetoothAdapter.ACTION_STATE_CHANGED))
         btReceiverRegistered = true
         registerNetworkCallback()
@@ -93,6 +104,7 @@ class StatusBarService : Service() {
     override fun onDestroy() {
         super.onDestroy()
         handler.removeCallbacks(clockUpdater)
+        handler.removeCallbacks(hideRunnable)
         if (btReceiverRegistered) {
             try {
                 unregisterReceiver(btReceiver)
@@ -102,7 +114,14 @@ class StatusBarService : Service() {
             btReceiverRegistered = false
         }
         unregisterNetworkCallback()
-        overlayView?.let {
+        handleView?.let {
+            try {
+                windowManager.removeView(it)
+            } catch (e: Exception) {
+                // 既に外れている場合は無視
+            }
+        }
+        panelView?.let {
             try {
                 windowManager.removeView(it)
             } catch (e: Exception) {
@@ -113,36 +132,137 @@ class StatusBarService : Service() {
 
     override fun onBind(intent: Intent?): IBinder? = null
 
-    @SuppressLint("InflateParams")
-    private fun showOverlay() {
+    /** 画面右端に常時表示する、細い半透明のつまみ（タップ/スワイプでパネルを呼び出す） */
+    @SuppressLint("ClickableViewAccessibility")
+    private fun showHandle() {
         if (!Settings.canDrawOverlays(this)) return
-        if (overlayView != null) return
+        if (handleView != null) return
 
-        val inflater = LayoutInflater.from(this)
-        val view = inflater.inflate(R.layout.overlay_status_bar, null)
+        val view = View(this)
+        view.setBackgroundResource(R.drawable.bar_handle_bg)
+        view.contentDescription = getString(R.string.bar_handle_desc)
+
+        val handleWidthPx = (14 * resources.displayMetrics.density).toInt()
+        val swipeThresholdPx = ViewConfiguration.get(this).scaledTouchSlop * 2
 
         val overlayType = WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY
-
         val params = WindowManager.LayoutParams(
+            handleWidthPx,
             WindowManager.LayoutParams.MATCH_PARENT,
-            WindowManager.LayoutParams.WRAP_CONTENT,
             overlayType,
             WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
                 WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN,
             PixelFormat.TRANSLUCENT
         )
-        params.gravity = Gravity.TOP
+        params.gravity = Gravity.END or Gravity.TOP
+
+        var downX = 0f
+        var moved = false
+        view.setOnTouchListener { _, event ->
+            when (event.actionMasked) {
+                MotionEvent.ACTION_DOWN -> {
+                    downX = event.rawX
+                    moved = false
+                    true
+                }
+                MotionEvent.ACTION_MOVE -> {
+                    if (!moved && downX - event.rawX > swipeThresholdPx) {
+                        moved = true
+                        showPanel()
+                    }
+                    true
+                }
+                MotionEvent.ACTION_UP -> {
+                    if (!moved) {
+                        if (panelVisible) hidePanel() else showPanel()
+                    }
+                    true
+                }
+                else -> false
+            }
+        }
+
+        try {
+            windowManager.addView(view, params)
+            handleView = view
+        } catch (e: Exception) {
+            // オーバーレイ権限が途中で取り消された場合など
+        }
+    }
+
+    /** 操作パネル本体のウィンドウを追加する（最初は非表示・非タッチ状態） */
+    @SuppressLint("InflateParams")
+    private fun showPanelWindow() {
+        if (!Settings.canDrawOverlays(this)) return
+        if (panelView != null) return
+
+        val inflater = LayoutInflater.from(this)
+        val view = inflater.inflate(R.layout.overlay_status_bar, null)
+
+        val overlayType = WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY
+        val params = WindowManager.LayoutParams(
+            WindowManager.LayoutParams.WRAP_CONTENT,
+            WindowManager.LayoutParams.WRAP_CONTENT,
+            overlayType,
+            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
+                WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN or
+                WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE,
+            PixelFormat.TRANSLUCENT
+        )
+        params.gravity = Gravity.END or Gravity.CENTER_VERTICAL
+        panelParams = params
 
         setupButtons(view)
 
         try {
             windowManager.addView(view, params)
-            overlayView = view
+            panelView = view
             updateBluetoothIcon(view)
             updateClock()
+            // レイアウト確定後に、パネルを右端の外側へ隠しておく
+            view.post {
+                view.translationX = view.width.toFloat()
+            }
         } catch (e: Exception) {
             // オーバーレイ権限が途中で取り消された場合など
         }
+    }
+
+    /** パネルをスライドして表示し、自動で隠れるタイマーをセットする */
+    private fun showPanel() {
+        val view = panelView ?: return
+        panelVisible = true
+        panelParams.flags = panelParams.flags and WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE.inv()
+        try {
+            windowManager.updateViewLayout(view, panelParams)
+        } catch (e: Exception) {
+            // 無視
+        }
+        view.animate().translationX(0f).setDuration(ANIM_DURATION_MS).start()
+        scheduleAutoHide()
+    }
+
+    /** パネルをスライドして隠し、タッチを下のアプリへ通すようにする */
+    private fun hidePanel() {
+        val view = panelView ?: return
+        if (!panelVisible) return
+        panelVisible = false
+        handler.removeCallbacks(hideRunnable)
+        view.animate().translationX(view.width.toFloat()).setDuration(ANIM_DURATION_MS)
+            .withEndAction {
+                panelParams.flags = panelParams.flags or WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE
+                try {
+                    windowManager.updateViewLayout(view, panelParams)
+                } catch (e: Exception) {
+                    // 無視
+                }
+            }
+            .start()
+    }
+
+    private fun scheduleAutoHide() {
+        handler.removeCallbacks(hideRunnable)
+        handler.postDelayed(hideRunnable, AUTO_HIDE_DELAY_MS)
     }
 
     private fun toast(resId: Int) {
@@ -156,14 +276,19 @@ class StatusBarService : Service() {
         return false
     }
 
-    private fun setupButtons(view: android.view.View) {
+    private fun setupButtons(view: View) {
         view.findViewById<View>(R.id.btnBack).setOnClickListener {
             if (requireAccessibility()) LauncherAccessibilityService.performBack()
+            scheduleAutoHide()
         }
         val home = view.findViewById<View>(R.id.btnHome)
-        home.setOnClickListener { goHomeOrAppTop() }
+        home.setOnClickListener {
+            goHomeOrAppTop()
+            scheduleAutoHide()
+        }
         home.setOnLongClickListener {
             openLauncherTop()
+            scheduleAutoHide()
             true
         }
         val prev = view.findViewById<View>(R.id.btnPrevApp)
@@ -171,9 +296,11 @@ class StatusBarService : Service() {
             if (requireAccessibility() && !LauncherAccessibilityService.launchPreviousApp()) {
                 toast(R.string.bar_no_prev_app)
             }
+            scheduleAutoHide()
         }
         prev.setOnLongClickListener {
             if (requireAccessibility()) LauncherAccessibilityService.openRecents()
+            scheduleAutoHide()
             true
         }
 
@@ -182,10 +309,14 @@ class StatusBarService : Service() {
             Prefs.setAutoSkip(this, next)
             updateSkipButton(view)
             toast(if (next) R.string.bar_skip_on else R.string.bar_skip_off)
+            scheduleAutoHide()
         }
         updateSkipButton(view)
 
-        view.findViewById<View>(R.id.btnWifi).setOnClickListener { rescanWifi() }
+        view.findViewById<View>(R.id.btnWifi).setOnClickListener {
+            rescanWifi()
+            scheduleAutoHide()
+        }
 
         view.findViewById<View>(R.id.iconBluetooth).setOnClickListener {
             try {
@@ -195,6 +326,7 @@ class StatusBarService : Service() {
             } catch (e: Exception) {
                 // 設定画面が開けない場合は無視
             }
+            scheduleAutoHide()
         }
     }
 
@@ -282,10 +414,10 @@ class StatusBarService : Service() {
     }
 
     private fun setWifiIconConnected(connected: Boolean) {
-        overlayView?.findViewById<View>(R.id.btnWifi)?.alpha = if (connected) 1.0f else 0.35f
+        panelView?.findViewById<View>(R.id.btnWifi)?.alpha = if (connected) 1.0f else 0.35f
     }
 
-    private fun updateSkipButton(view: android.view.View) {
+    private fun updateSkipButton(view: View) {
         val btn = view.findViewById<View>(R.id.skipDot)
         btn.setBackgroundResource(
             if (Prefs.autoSkipEnabled) R.drawable.bar_skip_on else R.drawable.bar_skip_off
@@ -293,14 +425,14 @@ class StatusBarService : Service() {
     }
 
     private fun updateClock() {
-        val view = overlayView ?: return
+        val view = panelView ?: return
         val clock = view.findViewById<TextView>(R.id.clock)
         val sdf = SimpleDateFormat("MM/dd HH:mm", Locale.JAPAN)
         clock.text = sdf.format(Date())
     }
 
     @SuppressLint("MissingPermission")
-    private fun updateBluetoothIcon(view: android.view.View) {
+    private fun updateBluetoothIcon(view: View) {
         val icon = view.findViewById<View>(R.id.iconBluetooth)
         val on = try {
             val manager = getSystemService(Context.BLUETOOTH_SERVICE) as? BluetoothManager
