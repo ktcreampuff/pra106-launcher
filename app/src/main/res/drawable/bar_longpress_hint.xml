@@ -1,6 +1,17 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- 「長押しで別の操作がある」ことを示す、ごく小さな目印ドット -->
-<shape xmlns:android="http://schemas.android.com/apk/res/android" android:shape="oval">
-    <size android:width="6dp" android:height="6dp" />
-    <solid android:color="#B0D4D4D4" />
-</shape>
+<!-- 「長押しで別の操作がある」ことを示す目印ドット。
+     走行中でも見えるよう、十分な大きさ（10dp）と、暗い縁取りによる強いコントラストを付ける -->
+<layer-list xmlns:android="http://schemas.android.com/apk/res/android">
+    <item android:gravity="center">
+        <shape android:shape="oval">
+            <size android:width="10dp" android:height="10dp" />
+            <solid android:color="#CC000000" />
+        </shape>
+    </item>
+    <item android:gravity="center">
+        <shape android:shape="oval">
+            <size android:width="7dp" android:height="7dp" />
+            <solid android:color="#FFFFFF" />
+        </shape>
+    </item>
+</layer-list>

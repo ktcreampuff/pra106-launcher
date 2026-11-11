@@ -18,7 +18,7 @@
         android:layout_marginBottom="6dp"
         android:gravity="center"
         android:textColor="#D4D4D4"
-        android:textSize="12sp"
+        android:textSize="14sp"
         android:text="00:00" />
 
     <FrameLayout
@@ -81,11 +81,11 @@
         <ImageView android:layout_width="24dp" android:layout_height="24dp" android:layout_gravity="center" android:src="@drawable/bar_ic_prev" android:importantForAccessibility="no" />
         <!-- 長押しで別操作があることを示す目印 -->
         <View
-            android:layout_width="6dp"
-            android:layout_height="6dp"
+            android:layout_width="10dp"
+            android:layout_height="10dp"
             android:layout_gravity="top|end"
-            android:layout_marginTop="4dp"
-            android:layout_marginEnd="4dp"
+            android:layout_marginTop="2dp"
+            android:layout_marginEnd="2dp"
             android:background="@drawable/bar_longpress_hint"
             android:importantForAccessibility="no" />
     </FrameLayout>
@@ -101,11 +101,11 @@
         <ImageView android:layout_width="24dp" android:layout_height="24dp" android:layout_gravity="center" android:src="@drawable/bar_ic_home" android:importantForAccessibility="no" />
         <!-- 長押しで別操作があることを示す目印 -->
         <View
-            android:layout_width="6dp"
-            android:layout_height="6dp"
+            android:layout_width="10dp"
+            android:layout_height="10dp"
             android:layout_gravity="top|end"
-            android:layout_marginTop="4dp"
-            android:layout_marginEnd="4dp"
+            android:layout_marginTop="2dp"
+            android:layout_marginEnd="2dp"
             android:background="@drawable/bar_longpress_hint"
             android:importantForAccessibility="no" />
     </FrameLayout>
