@@ -1066,6 +1066,11 @@ class MainActivity : Activity() {
     }
 
     private fun isAccessibilityServiceEnabled(): Boolean {
+        // LauncherAccessibilityService.isRunning はサービスが実際に動作中かを確実に返す。
+        // AccessibilityManager 側の判定はOEM機だと不安定で、有効なのにfalseを返すことがあるため、
+        // どちらか一方でも真なら有効とみなす（OR条件）。
+        if (LauncherAccessibilityService.isRunning) return true
+
         val am = getSystemService(ACCESSIBILITY_SERVICE) as AccessibilityManager
         val enabledServices = am.getEnabledAccessibilityServiceList(
             AccessibilityServiceInfo.FEEDBACK_GENERIC
