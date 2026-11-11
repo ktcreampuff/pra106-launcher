@@ -3,7 +3,7 @@
 PORMIDO PRA106（Android 13・QCM6125・車載ディスプレイオーディオ）向けの自作ホームランチャー。
 
 ## 前提・制約
-- root化とUSB ADBは不可（`ro.secure=1`、USBはホスト専用）。純正のSystemUIバーは消せない。
+- root化とUSB ADBは不可（`ro.secure=1`、USBはホスト専用）。純正のSystemUIバーはroot不可のため確実には消せないが、`MainActivity.hideSystemBars()` で標準のイマーシブモードAPI（WindowInsetsController等）を使って非表示リクエストを送っている。本体のSystemUI実装次第で効き方が変わるため、実機で要確認（「実機確認リスト」参照）。
 - 使える権限は通常アプリ・ユーザー補助（AccessibilityService）・オーバーレイ（SYSTEM_ALERT_WINDOW）の範囲だけ。
 - ローカルにAndroid SDKがないため、ビルドの検証は GitHub Actions（main に push → Releases にAPK）で行う。
 - 署名は `app/debug.keystore` で固定している（上書きインストールするため）。差し替えないこと。
