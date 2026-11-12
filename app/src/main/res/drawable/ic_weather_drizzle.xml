@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 天気「小雨」：くもりの雲形に、小さな雨粒を1つ重ねる -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="40dp" android:height="40dp"
+    android:viewportWidth="24" android:viewportHeight="24">
+    <path android:fillColor="#90A4AE" android:pathData="M19.35,8.04C18.67,4.59 15.64,2 12,2 9.11,2 6.6,3.64 5.35,6.04 2.34,6.36 0,8.91 0,12c0,3.31 2.69,6 6,6h13c2.76,0 5,-2.24 5,-5 0,-2.64 -2.05,-4.78 -4.65,-4.96z" />
+    <path android:fillColor="#4FC3F7" android:pathData="M11,16c-1.66,1.42 -2.5,2.64 -2.5,3.68 0,1.55 1.12,2.56 2.5,2.56s2.5,-1.01 2.5,-2.56c0,-1.04 -0.84,-2.26 -2.5,-3.68z" />
+</vector>

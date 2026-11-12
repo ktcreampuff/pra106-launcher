@@ -9,11 +9,11 @@
         android:gravity="center"
         android:padding="12dp">
 
-        <TextView
+        <ImageView
             android:id="@+id/weather_widget_icon"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:textSize="40sp" />
+            android:layout_width="40dp"
+            android:layout_height="40dp"
+            android:importantForAccessibility="no" />
 
         <TextView
             android:id="@+id/weather_widget_temp"

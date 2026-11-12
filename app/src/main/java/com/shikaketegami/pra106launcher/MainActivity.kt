@@ -35,6 +35,7 @@ import android.widget.PopupMenu
 import android.widget.TextView
 import android.widget.Toast
 import androidx.appcompat.app.AlertDialog
+import androidx.core.content.ContextCompat
 import androidx.recyclerview.widget.GridLayoutManager
 import androidx.recyclerview.widget.ItemTouchHelper
 import androidx.recyclerview.widget.LinearLayoutManager
@@ -131,6 +132,8 @@ class MainActivity : Activity() {
                 viewHolder.itemView.alpha = 0.6f
                 viewHolder.itemView.scaleX = 1.08f
                 viewHolder.itemView.scaleY = 1.08f
+                // 「持ち上げた」ことを振動でも伝える（運転中は見た目の変化だけでは気づきにくいため）
+                viewHolder.itemView.performHapticFeedback(android.view.HapticFeedbackConstants.LONG_PRESS)
             }
         }
 
@@ -145,19 +148,25 @@ class MainActivity : Activity() {
         ) {
             super.onChildDraw(c, recyclerView, viewHolder, dX, dY, actionState, isCurrentlyActive)
             if (actionState != ItemTouchHelper.ACTION_STATE_DRAG) return
-            // ドロップ先候補のマスをハイライトする（運転中でも分かりやすいように半透明化）
+            // ドロップ先候補のマスをハイライトする。空きマスは何も描かれていないため、
+            // alphaだけでは見た目が変わらない（ux-critic指摘）→ foregroundへの枠線drawable重ねに変更。
+            // background（item_app.xmlのリップル）はここでは触らない（setBackgroundResourceで
+            // 上書きすると、以後そのビューのタップ時リップルが永久に消えてしまうため）
             val cx = viewHolder.itemView.left + dX + viewHolder.itemView.width / 2f
             val cy = viewHolder.itemView.top + dY + viewHolder.itemView.height / 2f
             val hovered = recyclerView.findChildViewUnder(cx, cy)
             for (i in 0 until recyclerView.childCount) {
                 val child = recyclerView.getChildAt(i)
                 if (child === viewHolder.itemView) continue
-                child.alpha = if (child === hovered) 0.35f else 1f
+                child.foreground = if (child === hovered)
+                    ContextCompat.getDrawable(child.context, R.drawable.grid_cell_hover_bg)
+                else null
             }
         }
 
         override fun clearView(recyclerView: RecyclerView, viewHolder: RecyclerView.ViewHolder) {
             val from = viewHolder.bindingAdapterPosition
+            var moved = false
             if (from != RecyclerView.NO_POSITION) {
                 val cx = viewHolder.itemView.left + viewHolder.itemView.translationX + viewHolder.itemView.width / 2f
                 val cy = viewHolder.itemView.top + viewHolder.itemView.translationY + viewHolder.itemView.height / 2f
@@ -165,14 +174,29 @@ class MainActivity : Activity() {
                 val to = targetView?.let { recyclerView.getChildAdapterPosition(it) } ?: RecyclerView.NO_POSITION
                 if (to != RecyclerView.NO_POSITION && to != from) {
                     gridAdapter.swap(from, to)
+                    moved = true
                 }
             }
             super.clearView(recyclerView, viewHolder)
             viewHolder.itemView.alpha = 1f
-            viewHolder.itemView.scaleX = 1f
-            viewHolder.itemView.scaleY = 1f
+            if (moved) {
+                // 「置けた」ことを振動で伝え、見た目はバウンドさせて確定感を出す
+                // CONFIRM はAPI 30以上なので、それ未満では長押しと同じ振動にフォールバックする
+                val confirmHaptic = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R)
+                    android.view.HapticFeedbackConstants.CONFIRM
+                else android.view.HapticFeedbackConstants.LONG_PRESS
+                viewHolder.itemView.performHapticFeedback(confirmHaptic)
+                viewHolder.itemView.scaleX = 1.12f
+                viewHolder.itemView.scaleY = 1.12f
+                viewHolder.itemView.animate().scaleX(1f).scaleY(1f).setDuration(120).start()
+            } else {
+                // 置けなかった（元の位置に戻った）ことが分かるよう、軽く縮めて戻す
+                viewHolder.itemView.scaleX = 0.92f
+                viewHolder.itemView.scaleY = 0.92f
+                viewHolder.itemView.animate().scaleX(1f).scaleY(1f).setDuration(150).start()
+            }
             for (i in 0 until recyclerView.childCount) {
-                recyclerView.getChildAt(i).alpha = 1f
+                recyclerView.getChildAt(i).foreground = null
             }
         }
     })
@@ -423,13 +447,19 @@ class MainActivity : Activity() {
 
     private fun setReorderMode(on: Boolean) {
         if (reorderMode == on) return
-        if (!on) saveGridOrder()
+        if (!on) {
+            saveGridOrder()
+            // 保存されたことが分かるよう一言出す（ux-critic指摘：確定時に無反応だと不安が残る）
+            Toast.makeText(this, R.string.home_order_saved, Toast.LENGTH_SHORT).show()
+        }
         reorderMode = on
         gridAdapter.reorderMode = on
         dockAdapter.reorderMode = on
         reorderBar.visibility = if (on) View.VISIBLE else View.GONE
         settingsButton.visibility = if (on) View.INVISIBLE else View.VISIBLE
         nativeHomeButton.visibility = View.GONE // 純正ホームはクイック設定タイルへ移動
+        // 並べ替え中はドックへドラッグできないことを示す（アイコンの自由配置はグリッドのみ対象）
+        dockList.alpha = if (on) 0.4f else 1f
     }
 
     private fun saveGridOrder() {

@@ -6,6 +6,7 @@ import android.os.Looper
 import android.util.AttributeSet
 import android.view.LayoutInflater
 import android.widget.FrameLayout
+import android.widget.ImageView
 import android.widget.TextView
 import org.json.JSONObject
 import java.net.HttpURLConnection
@@ -27,7 +28,7 @@ class WeatherWidgetView @JvmOverloads constructor(
         private val executor = Executors.newSingleThreadExecutor()
     }
 
-    private val iconView: TextView
+    private val iconView: ImageView
     private val tempView: TextView
     private val messageView: TextView
     private val handler = Handler(Looper.getMainLooper())
@@ -70,7 +71,7 @@ class WeatherWidgetView @JvmOverloads constructor(
     private fun refresh() {
         val loc = try { CustomWidgetStore.getWeatherLocation(context) } catch (e: Exception) { null }
         if (loc == null) {
-            iconView.text = "📍" // 📍
+            iconView.setImageResource(R.drawable.ic_weather_location)
             tempView.text = ""
             messageView.setText(R.string.widget_weather_need_location)
             return
@@ -91,17 +92,17 @@ class WeatherWidgetView @JvmOverloads constructor(
     private fun applyResult(result: WeatherResult?) {
         if (!isAttachedToWindow) return
         if (result == null) {
-            iconView.text = "⚠️" // ⚠️
+            iconView.setImageResource(R.drawable.ic_weather_error)
             tempView.text = ""
             messageView.setText(R.string.widget_weather_error)
         } else {
-            iconView.text = result.icon
+            iconView.setImageResource(result.iconRes)
             tempView.text = context.getString(R.string.widget_weather_temp_format, result.temp)
             messageView.text = result.label
         }
     }
 
-    private data class WeatherResult(val temp: Int, val icon: String, val label: String)
+    private data class WeatherResult(val temp: Int, val iconRes: Int, val label: String)
 
     private fun fetchWeather(lat: Double, lon: Double): WeatherResult {
         val url = URL(
@@ -126,14 +127,16 @@ class WeatherWidgetView @JvmOverloads constructor(
         }
     }
 
-    private fun describe(code: Int): Pair<String, String> = when (code) {
-        0 -> "☀️" to context.getString(R.string.widget_weather_clear) // ☀️
-        1, 2, 3 -> "⛅" to context.getString(R.string.widget_weather_cloudy) // ⛅
-        45, 48 -> "🌫️" to context.getString(R.string.widget_weather_fog) // 🌫️
-        51, 53, 55, 56, 57 -> "🌦️" to context.getString(R.string.widget_weather_drizzle) // 🌦️
-        61, 63, 65, 66, 67, 80, 81, 82 -> "🌧️" to context.getString(R.string.widget_weather_rain) // 🌧️
-        71, 73, 75, 77, 85, 86 -> "❄️" to context.getString(R.string.widget_weather_snow) // ❄️
-        95, 96, 99 -> "⛈️" to context.getString(R.string.widget_weather_thunder) // ⛈️
-        else -> "🌡️" to context.getString(R.string.widget_weather_unknown) // 🌡️
+    // 絵文字は車載機のシステムフォントがColor Emoji非対応だと文字化け（豆腐表示）する恐れがあるため、
+    // ベクターアイコン（R.drawable.ic_weather_*）に変更（ux-critic指摘）
+    private fun describe(code: Int): Pair<Int, String> = when (code) {
+        0 -> R.drawable.ic_weather_clear to context.getString(R.string.widget_weather_clear)
+        1, 2, 3 -> R.drawable.ic_weather_cloudy to context.getString(R.string.widget_weather_cloudy)
+        45, 48 -> R.drawable.ic_weather_fog to context.getString(R.string.widget_weather_fog)
+        51, 53, 55, 56, 57 -> R.drawable.ic_weather_drizzle to context.getString(R.string.widget_weather_drizzle)
+        61, 63, 65, 66, 67, 80, 81, 82 -> R.drawable.ic_weather_rain to context.getString(R.string.widget_weather_rain)
+        71, 73, 75, 77, 85, 86 -> R.drawable.ic_weather_snow to context.getString(R.string.widget_weather_snow)
+        95, 96, 99 -> R.drawable.ic_weather_thunder to context.getString(R.string.widget_weather_thunder)
+        else -> R.drawable.ic_weather_unknown to context.getString(R.string.widget_weather_unknown)
     }
 }

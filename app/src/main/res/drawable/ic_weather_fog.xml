@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 天気「霧」：くもりの雲形に、霧を示す横線を重ねる -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="40dp" android:height="40dp"
+    android:viewportWidth="24" android:viewportHeight="24">
+    <path android:fillColor="#B0BEC5" android:pathData="M19.35,9.04C18.67,5.59 15.64,3 12,3 9.11,3 6.6,4.64 5.35,7.04 2.34,7.36 0,9.91 0,13c0,3.31 2.69,6 6,6h13c2.76,0 5,-2.24 5,-5 0,-2.64 -2.05,-4.78 -4.65,-4.96z" />
+    <path android:strokeColor="#FFFFFF" android:strokeWidth="1.4" android:strokeLineCap="round" android:pathData="M3,19.5h18" />
+    <path android:strokeColor="#FFFFFF" android:strokeWidth="1.4" android:strokeLineCap="round" android:pathData="M5,22h14" />
+</vector>

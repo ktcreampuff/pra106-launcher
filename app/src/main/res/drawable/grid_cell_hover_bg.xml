@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- アイコンのドラッグ中、ドロップ先候補のマスに付ける見た目。
+     空きマス（何も描かれていない）でもここに置けることが分かるよう、
+     alphaではなく背景の枠線＋塗りで示す（ux-critic指摘：alphaだけでは空きマスは変化が見えない） -->
+<shape xmlns:android="http://schemas.android.com/apk/res/android" android:shape="rectangle">
+    <solid android:color="#40FFFFFF" />
+    <stroke android:width="2dp" android:color="#FFFFFF" />
+    <corners android:radius="12dp" />
+</shape>

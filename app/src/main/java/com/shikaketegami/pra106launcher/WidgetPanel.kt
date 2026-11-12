@@ -93,6 +93,7 @@ class WidgetPanel(private val activity: Activity, private val container: LinearL
 
     fun start() {
         try { host.startListening() } catch (e: Exception) { }
+        resumeCustomWidgets()
         if (!restored) {
             restored = true
             restore()
@@ -107,6 +108,27 @@ class WidgetPanel(private val activity: Activity, private val container: LinearL
 
     fun stop() {
         try { host.stopListening() } catch (e: Exception) { }
+        pauseCustomWidgets()
+    }
+
+    /**
+     * 自作ウィジェット（時計・天気）の更新を止める／再開する。
+     * これらはView自体はActivity.onStopでも画面から外れない（detachされない）ため、
+     * AppWidgetHostのstartListening/stopListeningに相当する処理をここで明示的に行う必要がある
+     * （ux-critic指摘：裏に回っても天気が30分おきに通信し続けていた）。
+     */
+    private fun pauseCustomWidgets() {
+        for (v in customViews.values) {
+            (v as? ClockWidgetView)?.pause()
+            (v as? WeatherWidgetView)?.pause()
+        }
+    }
+
+    private fun resumeCustomWidgets() {
+        for (v in customViews.values) {
+            (v as? ClockWidgetView)?.resume()
+            (v as? WeatherWidgetView)?.resume()
+        }
     }
 
     private fun dp(v: Int): Int = (v * activity.resources.displayMetrics.density).roundToInt()
@@ -175,7 +197,10 @@ class WidgetPanel(private val activity: Activity, private val container: LinearL
     private fun addCustomWidget(type: Int) {
         try {
             val id = CustomWidgetStore.nextId(activity)
-            customItems.add(CustomWidgetStore.Item(id, type, 160))
+            // 天気はアイコン・気温・メッセージの3段を表示するため、時計より少し高めの初期値にする
+            // （ux-critic指摘：120dpの最小プリセットだと3段がきつい）
+            val initialHeight = if (type == CustomWidgetStore.TYPE_WEATHER) 200 else 160
+            customItems.add(CustomWidgetStore.Item(id, type, initialHeight))
             saveCustom()
             render()
             onChanged?.invoke()
@@ -390,6 +415,12 @@ class WidgetPanel(private val activity: Activity, private val container: LinearL
         }
         card.addView(widgetView, FrameLayout.LayoutParams(
             ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
+        // 天気で位置未設定のときは、タップだけでも設定ダイアログを開けるようにする
+        // （ux-critic指摘：長押しでしか設定できないことが伝わりにくい。見た目が壊れているようにも見える）
+        if (entry.type == CustomWidgetStore.TYPE_WEATHER && CustomWidgetStore.getWeatherLocation(activity) == null) {
+            card.isClickable = true
+            card.setOnClickListener { showLocationDialog() }
+        }
         return card
     }
 
@@ -455,6 +486,7 @@ class WidgetPanel(private val activity: Activity, private val container: LinearL
             }
             AlertDialog.Builder(activity)
                 .setTitle(R.string.widget_weather_location_title)
+                .setMessage(R.string.widget_weather_location_caution)
                 .setView(layout)
                 .setPositiveButton(android.R.string.ok) { _, _ ->
                     val lat = latInput.text.toString().toDoubleOrNull()
