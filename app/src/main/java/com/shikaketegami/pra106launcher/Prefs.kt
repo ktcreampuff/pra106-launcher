@@ -9,11 +9,15 @@ import android.content.SharedPreferences
  */
 object Prefs {
     private const val FILE = "launcher_prefs"
-    private const val K_ORDER = "grid_order"       // 並び順（キーを改行区切り）
+    private const val K_ORDER = "grid_order"       // 旧形式の並び順（キーを改行区切り、空きマスなし）。移行用に読み取りのみ残す
+    private const val K_GRID_SLOTS = "grid_slots"   // 新形式：マスごとの内容（キー or 空きマス印を改行区切り）
     private const val K_DOCK = "dock_apps"          // ドック（キーを改行区切り、順序あり）
     private const val K_HIDDEN = "hidden_apps"      // 非表示（キーを改行区切り）
     private const val K_COLUMNS = "grid_columns"
     private const val K_AUTOSKIP = "autoskip_enabled"
+
+    /** grid_slots 内で「空きマス」を表す印。パッケージキーは必ず "/" を含むため衝突しない */
+    private const val EMPTY_SLOT = "__EMPTY_SLOT__"
 
     const val DOCK_MAX = 8
 
@@ -34,8 +38,24 @@ object Prefs {
         autoSkipEnabled = sp(c).getBoolean(K_AUTOSKIP, true)
     }
 
+    /** 旧形式の並び順（空きマスの情報は持たない）。新形式への移行時のフォールバックとしてのみ使う */
     fun getOrder(c: Context) = getList(c, K_ORDER)
-    fun setOrder(c: Context, keys: List<String>) = putList(c, K_ORDER, keys)
+
+    /**
+     * グリッドのマスごとの内容。要素はキー、または空きマスなら null。
+     * 一度も新形式で保存していない（並べ替えを一度も確定していない）場合は null を返すので、
+     * 呼び出し側は getOrder() の旧データにフォールバックすること。
+     */
+    fun getGridSlots(c: Context): List<String?>? {
+        val raw = sp(c).getString(K_GRID_SLOTS, null) ?: return null
+        if (raw.isEmpty()) return emptyList()
+        return raw.split("\n").map { if (it == EMPTY_SLOT) null else it }
+    }
+
+    fun setGridSlots(c: Context, slots: List<String?>) {
+        val encoded = slots.joinToString("\n") { it ?: EMPTY_SLOT }
+        sp(c).edit().putString(K_GRID_SLOTS, encoded).apply()
+    }
 
     fun getDock(c: Context) = getList(c, K_DOCK)
     fun setDock(c: Context, keys: List<String>) = putList(c, K_DOCK, keys.take(DOCK_MAX))

@@ -97,21 +97,84 @@ class MainActivity : Activity() {
         }
     }
 
+    /**
+     * グリッドのドラッグ並べ替え。ホバー中に他アイテムを連動させる「スワップ方式」ではなく、
+     * 指を離した位置（ドロップ先）だけで配置を確定する方式。
+     * - onMove は常に false を返し、ドラッグ中は自動で並びを動かさない（見た目のフロートのみ）
+     * - clearView（ドロップ時）に、浮いているビューの現在位置から対象マスを計算して
+     *   gridAdapter.swap() で内容を入れ替える（空きマスへ置いた場合はそのまま移動）
+     */
     private val touchHelper = ItemTouchHelper(object : ItemTouchHelper.SimpleCallback(
         ItemTouchHelper.UP or ItemTouchHelper.DOWN or ItemTouchHelper.LEFT or ItemTouchHelper.RIGHT, 0
     ) {
         override fun isLongPressDragEnabled(): Boolean = reorderMode
 
+        override fun getMovementFlags(recyclerView: RecyclerView, viewHolder: RecyclerView.ViewHolder): Int {
+            if (!reorderMode) return 0
+            val pos = viewHolder.bindingAdapterPosition
+            // 空きマスは持ち上げられない（ドロップ先にはなれる）
+            if (pos == RecyclerView.NO_POSITION || gridAdapter.isEmpty(pos)) return 0
+            return super.getMovementFlags(recyclerView, viewHolder)
+        }
+
         override fun onMove(
             recyclerView: RecyclerView,
             viewHolder: RecyclerView.ViewHolder,
             target: RecyclerView.ViewHolder
-        ): Boolean {
-            gridAdapter.move(viewHolder.bindingAdapterPosition, target.bindingAdapterPosition)
-            return true
-        }
+        ): Boolean = false
 
         override fun onSwiped(viewHolder: RecyclerView.ViewHolder, direction: Int) {}
+
+        override fun onSelectedChanged(viewHolder: RecyclerView.ViewHolder?, actionState: Int) {
+            super.onSelectedChanged(viewHolder, actionState)
+            if (actionState == ItemTouchHelper.ACTION_STATE_DRAG && viewHolder != null) {
+                viewHolder.itemView.alpha = 0.6f
+                viewHolder.itemView.scaleX = 1.08f
+                viewHolder.itemView.scaleY = 1.08f
+            }
+        }
+
+        override fun onChildDraw(
+            c: android.graphics.Canvas,
+            recyclerView: RecyclerView,
+            viewHolder: RecyclerView.ViewHolder,
+            dX: Float,
+            dY: Float,
+            actionState: Int,
+            isCurrentlyActive: Boolean
+        ) {
+            super.onChildDraw(c, recyclerView, viewHolder, dX, dY, actionState, isCurrentlyActive)
+            if (actionState != ItemTouchHelper.ACTION_STATE_DRAG) return
+            // ドロップ先候補のマスをハイライトする（運転中でも分かりやすいように半透明化）
+            val cx = viewHolder.itemView.left + dX + viewHolder.itemView.width / 2f
+            val cy = viewHolder.itemView.top + dY + viewHolder.itemView.height / 2f
+            val hovered = recyclerView.findChildViewUnder(cx, cy)
+            for (i in 0 until recyclerView.childCount) {
+                val child = recyclerView.getChildAt(i)
+                if (child === viewHolder.itemView) continue
+                child.alpha = if (child === hovered) 0.35f else 1f
+            }
+        }
+
+        override fun clearView(recyclerView: RecyclerView, viewHolder: RecyclerView.ViewHolder) {
+            val from = viewHolder.bindingAdapterPosition
+            if (from != RecyclerView.NO_POSITION) {
+                val cx = viewHolder.itemView.left + viewHolder.itemView.translationX + viewHolder.itemView.width / 2f
+                val cy = viewHolder.itemView.top + viewHolder.itemView.translationY + viewHolder.itemView.height / 2f
+                val targetView = recyclerView.findChildViewUnder(cx, cy)
+                val to = targetView?.let { recyclerView.getChildAdapterPosition(it) } ?: RecyclerView.NO_POSITION
+                if (to != RecyclerView.NO_POSITION && to != from) {
+                    gridAdapter.swap(from, to)
+                }
+            }
+            super.clearView(recyclerView, viewHolder)
+            viewHolder.itemView.alpha = 1f
+            viewHolder.itemView.scaleX = 1f
+            viewHolder.itemView.scaleY = 1f
+            for (i in 0 until recyclerView.childCount) {
+                recyclerView.getChildAt(i).alpha = 1f
+            }
+        }
     })
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -322,14 +385,39 @@ class MainActivity : Activity() {
     private fun applyLists() {
         val hidden = Prefs.getHidden(this)
         val visible = allApps.filter { it.key !in hidden }
-        val order = Prefs.getOrder(this)
-        val index = HashMap<String, Int>()
-        order.forEachIndexed { i, k -> if (!index.containsKey(k)) index[k] = i }
-        // 登録済みは保存順、未登録は名前順（allApps は名前順なので安定ソートで末尾に）
-        val sorted = visible.sortedBy { index[it.key] ?: Int.MAX_VALUE }
-        gridAdapter.submit(sorted)
-
         val byKey = visible.associateBy { it.key }
+
+        // 新形式（マスごと・空きマスあり）。一度も確定保存していない場合は null になるので、
+        // 旧形式（空きマスなしの並び順）にフォールバックして既存ユーザーの並びを壊さない
+        val baseSlots: List<String?> = Prefs.getGridSlots(this) ?: Prefs.getOrder(this)
+
+        val display = ArrayList<AppInfo?>(baseSlots.size)
+        val placed = HashSet<String>()
+        for (key in baseSlots) {
+            val app = key?.let { byKey[it] }
+            display.add(app)
+            if (app != null) placed.add(app.key)
+        }
+        // 未配置のアプリ（新規インストールなど）は、空きマスへ先に詰め、残りは末尾に追加
+        val unplaced = visible.filter { it.key !in placed }
+        var fillIndex = 0
+        for (app in unplaced) {
+            while (fillIndex < display.size && display[fillIndex] != null) fillIndex++
+            if (fillIndex < display.size) {
+                display[fillIndex] = app
+                fillIndex++
+            } else {
+                display.add(app)
+            }
+        }
+        // 最後の行も列数ぶん埋めて、ドロップ可能なマスを用意する
+        val span = gridLayout.spanCount.coerceAtLeast(1)
+        val remainder = display.size % span
+        if (display.isNotEmpty() && remainder != 0) {
+            repeat(span - remainder) { display.add(null) }
+        }
+        gridAdapter.submit(display)
+
         dockAdapter.submit(Prefs.getDock(this).mapNotNull { byKey[it] }.take(Prefs.DOCK_MAX))
     }
 
@@ -345,11 +433,8 @@ class MainActivity : Activity() {
     }
 
     private fun saveGridOrder() {
-        val keys = gridAdapter.items().map { it.key }
-        val keySet = keys.toSet()
-        // 非表示アプリなど、グリッドに無いキーは後ろに残す
-        val remaining = Prefs.getOrder(this).filter { it !in keySet }
-        Prefs.setOrder(this, keys + remaining)
+        // 空きマスも null のまま保存し、次回表示時に同じ位置を空きマスとして再現する
+        Prefs.setGridSlots(this, gridAdapter.items().map { it?.key })
     }
 
     private fun showAppMenu(anchor: View, app: AppInfo) {
@@ -455,7 +540,7 @@ class MainActivity : Activity() {
                     applyBackground()
                 }
                 MENU_RESET -> {
-                    Prefs.setOrder(this, emptyList())
+                    Prefs.setGridSlots(this, emptyList())
                     applyLists()
                 }
             }
@@ -953,7 +1038,11 @@ class MainActivity : Activity() {
         if (usable <= 0) return
         val cellPx = (Prefs.getIconSizeDp(this) + CELL_MARGIN_DP) * resources.displayMetrics.density
         val n = (usable / cellPx).toInt().coerceAtLeast(MIN_AUTO_COLUMNS)
-        if (gridLayout.spanCount != n) gridLayout.spanCount = n
+        if (gridLayout.spanCount != n) {
+            gridLayout.spanCount = n
+            // 列数が変わったら、最後の行の空きマス埋め直しも含めて再構築する
+            applyLists()
+        }
     }
 
     private fun showIconSizeDialog() {
@@ -993,7 +1082,10 @@ class MainActivity : Activity() {
                     val n = options[which - 1]
                     Prefs.setAutoColumns(this, false)
                     Prefs.setColumns(this, n)
-                    gridLayout.spanCount = n
+                    if (gridLayout.spanCount != n) {
+                        gridLayout.spanCount = n
+                        applyLists()
+                    }
                 }
                 dialog.dismiss()
             }

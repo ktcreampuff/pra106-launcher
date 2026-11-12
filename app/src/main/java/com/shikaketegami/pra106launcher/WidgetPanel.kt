@@ -10,11 +10,13 @@ import android.content.ComponentName
 import android.content.Intent
 import android.graphics.Color
 import android.os.SystemClock
+import android.text.InputType
 import android.view.Gravity
 import android.view.MotionEvent
 import android.view.View
 import android.view.ViewConfiguration
 import android.view.ViewGroup
+import android.widget.EditText
 import android.widget.FrameLayout
 import android.widget.LinearLayout
 import android.widget.TextView
@@ -38,6 +40,12 @@ class WidgetPanel(private val activity: Activity, private val container: LinearL
     private val items = mutableListOf<Pair<Int, Int>>() // appWidgetId と高さdp
     private val views = HashMap<Int, AppWidgetHostView>()
     private var restored = false
+
+    // 自作ウィジェット（時計・天気）。id は CustomWidgetStore が発行する負の値で、
+    // AppWidgetHost が割り当てる他アプリウィジェットの appWidgetId（正の値）とは衝突しない。
+    // 保存先は CustomWidgetStore.kt（Prefs.ktとは別領域）。表示は他アプリウィジェットのカードと同じ縦リストに並べる。
+    private val customItems = mutableListOf<CustomWidgetStore.Item>()
+    private val customViews = HashMap<Int, View>()
 
     // 追加処理の途中状態（バインド／設定の結果待ち）
     private var pendingId = -1
@@ -81,7 +89,7 @@ class WidgetPanel(private val activity: Activity, private val container: LinearL
         } catch (e: Exception) { }
     }
 
-    val isEmpty: Boolean get() = items.isEmpty()
+    val isEmpty: Boolean get() = items.isEmpty() && customItems.isEmpty()
 
     fun start() {
         try { host.startListening() } catch (e: Exception) { }
@@ -107,6 +115,12 @@ class WidgetPanel(private val activity: Activity, private val container: LinearL
         items.clear()
         // 一時的に読み込めないだけの場合があるので、ここでは削除しない（削除は長押しメニューから）
         for ((id, h) in Prefs.getWidgets(activity)) items.add(id to h.coerceIn(MIN_H, MAX_H))
+        customItems.clear()
+        try {
+            for (it0 in CustomWidgetStore.getItems(activity)) {
+                customItems.add(it0.copy(height = it0.height.coerceIn(MIN_H, MAX_H)))
+            }
+        } catch (e: Exception) { }
         render()
     }
 
@@ -114,9 +128,62 @@ class WidgetPanel(private val activity: Activity, private val container: LinearL
         try { Prefs.setWidgets(activity, items.toList()) } catch (e: Exception) { }
     }
 
+    private fun saveCustom() {
+        try { CustomWidgetStore.setItems(activity, customItems.toList()) } catch (e: Exception) { }
+    }
+
     // ---- 追加 ----
 
+    /** まず「自作ウィジェットから選ぶ／インストール済みウィジェットから選ぶ」を選ばせる。 */
     fun addWidget() {
+        try {
+            AlertDialog.Builder(activity)
+                .setTitle(R.string.widget_source_title)
+                .setItems(arrayOf(
+                    activity.getString(R.string.widget_source_custom),
+                    activity.getString(R.string.widget_source_installed)
+                )) { _, which ->
+                    when (which) {
+                        0 -> showCustomWidgetChoice()
+                        else -> showInstalledWidgetChoice()
+                    }
+                }
+                .setNegativeButton(R.string.widget_cancel) { _, _ -> onCancelled?.invoke() }
+                .setOnCancelListener { onCancelled?.invoke() }
+                .show()
+        } catch (e: Exception) { onCancelled?.invoke() }
+    }
+
+    /** 自作ウィジェット（時計／天気）を選ばせる。 */
+    private fun showCustomWidgetChoice() {
+        try {
+            AlertDialog.Builder(activity)
+                .setTitle(R.string.widget_custom_pick_title)
+                .setItems(arrayOf(
+                    activity.getString(R.string.widget_custom_clock),
+                    activity.getString(R.string.widget_custom_weather)
+                )) { _, which ->
+                    val type = if (which == 0) CustomWidgetStore.TYPE_CLOCK else CustomWidgetStore.TYPE_WEATHER
+                    addCustomWidget(type)
+                }
+                .setNegativeButton(R.string.widget_cancel) { _, _ -> onCancelled?.invoke() }
+                .setOnCancelListener { onCancelled?.invoke() }
+                .show()
+        } catch (e: Exception) { onCancelled?.invoke() }
+    }
+
+    private fun addCustomWidget(type: Int) {
+        try {
+            val id = CustomWidgetStore.nextId(activity)
+            customItems.add(CustomWidgetStore.Item(id, type, 160))
+            saveCustom()
+            render()
+            onChanged?.invoke()
+        } catch (e: Exception) { onCancelled?.invoke() }
+    }
+
+    /** これまでの「インストール済みの他アプリのウィジェットを選ぶ」フロー（変更なし）。 */
+    private fun showInstalledWidgetChoice() {
         try {
             val pm = activity.packageManager
             val list = manager.installedProviders.map { p ->
@@ -240,7 +307,7 @@ class WidgetPanel(private val activity: Activity, private val container: LinearL
         container.removeAllViews()
         hasPlaceholder = false
         placeholderIds.clear()
-        if (items.isEmpty()) {
+        if (items.isEmpty() && customItems.isEmpty()) {
             container.addView(TextView(activity).apply {
                 setText(R.string.widget_empty_hint)
                 setTextColor(Color.parseColor("#80FFFFFF"))
@@ -248,6 +315,10 @@ class WidgetPanel(private val activity: Activity, private val container: LinearL
                 setPadding(dp(8), dp(8), dp(8), dp(8))
             })
             return
+        }
+        // 自作ウィジェットを先頭に、その後に他アプリのウィジェットを並べる（見た目のカードは共通）
+        for (entry in customItems.toList()) {
+            container.addView(buildCustomCard(entry))
         }
         for ((id, h) in items.toList()) {
             val card = try { buildCard(id, h) } catch (e: Exception) { null } ?: run { hasPlaceholder = true; placeholderIds.add(id); buildPlaceholder(id, h) }
@@ -302,27 +373,95 @@ class WidgetPanel(private val activity: Activity, private val container: LinearL
         return card
     }
 
+    /** 自作ウィジェット（時計／天気）のカードを作る。見た目は他アプリウィジェットのカードと共通。 */
+    private fun buildCustomCard(entry: CustomWidgetStore.Item): View {
+        val widgetView = customViews.getOrPut(entry.id) {
+            when (entry.type) {
+                CustomWidgetStore.TYPE_WEATHER -> WeatherWidgetView(activity)
+                else -> ClockWidgetView(activity)
+            }
+        }
+        (widgetView.parent as? ViewGroup)?.removeView(widgetView)
+
+        val card = LongPressFrame(activity) { showMenu(entry.id) }.apply {
+            background = activity.getDrawable(R.drawable.widget_card_bg)
+            clipToOutline = true
+            layoutParams = cardParams(entry.height)
+        }
+        card.addView(widgetView, FrameLayout.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
+        return card
+    }
+
     // ---- 長押しメニュー ----
 
+    /** id が負の値なら自作ウィジェット、0以上なら他アプリのウィジェット（appWidgetId）として扱う。 */
     private fun showMenu(id: Int) {
-        val labels = arrayOf(
+        val customEntry = customItems.firstOrNull { it.id == id }
+        val labels = mutableListOf(
             activity.getString(R.string.widget_menu_height_small),
             activity.getString(R.string.widget_menu_height_medium),
             activity.getString(R.string.widget_menu_height_large),
             activity.getString(R.string.widget_menu_move_up),
-            activity.getString(R.string.widget_menu_move_down),
-            activity.getString(R.string.widget_menu_delete)
+            activity.getString(R.string.widget_menu_move_down)
         )
+        val locationIndex: Int
+        if (customEntry != null && customEntry.type == CustomWidgetStore.TYPE_WEATHER) {
+            locationIndex = labels.size
+            labels.add(activity.getString(R.string.widget_weather_location_menu))
+        } else {
+            locationIndex = -1
+        }
+        val deleteIndex = labels.size
+        labels.add(activity.getString(R.string.widget_menu_delete))
         try {
             AlertDialog.Builder(activity)
-                .setItems(labels) { _, which ->
+                .setItems(labels.toTypedArray()) { _, which ->
                     when (which) {
                         0 -> setHeight(id, 120)
                         1 -> setHeight(id, 200)
                         2 -> setHeight(id, 300)
                         3 -> move(id, -1)
                         4 -> move(id, 1)
-                        5 -> remove(id)
+                        locationIndex -> showLocationDialog()
+                        deleteIndex -> remove(id)
+                    }
+                }
+                .setNegativeButton(R.string.widget_cancel, null)
+                .show()
+        } catch (e: Exception) { }
+    }
+
+    /** 天気ウィジェットの緯度・経度を手動で入力させる（位置情報の権限は使わない）。 */
+    private fun showLocationDialog() {
+        try {
+            val loc = CustomWidgetStore.getWeatherLocation(activity)
+            val latInput = EditText(activity).apply {
+                hint = activity.getString(R.string.widget_weather_lat_hint)
+                inputType = InputType.TYPE_CLASS_NUMBER or InputType.TYPE_NUMBER_FLAG_DECIMAL or InputType.TYPE_NUMBER_FLAG_SIGNED
+                setText(loc?.first?.toString() ?: "")
+            }
+            val lonInput = EditText(activity).apply {
+                hint = activity.getString(R.string.widget_weather_lon_hint)
+                inputType = InputType.TYPE_CLASS_NUMBER or InputType.TYPE_NUMBER_FLAG_DECIMAL or InputType.TYPE_NUMBER_FLAG_SIGNED
+                setText(loc?.second?.toString() ?: "")
+            }
+            val pad = dp(16)
+            val layout = LinearLayout(activity).apply {
+                orientation = LinearLayout.VERTICAL
+                setPadding(pad, pad / 2, pad, 0)
+                addView(latInput)
+                addView(lonInput)
+            }
+            AlertDialog.Builder(activity)
+                .setTitle(R.string.widget_weather_location_title)
+                .setView(layout)
+                .setPositiveButton(android.R.string.ok) { _, _ ->
+                    val lat = latInput.text.toString().toDoubleOrNull()
+                    val lon = lonInput.text.toString().toDoubleOrNull()
+                    if (lat != null && lon != null) {
+                        CustomWidgetStore.setWeatherLocation(activity, lat, lon)
+                        render()
                     }
                 }
                 .setNegativeButton(R.string.widget_cancel, null)
@@ -331,6 +470,14 @@ class WidgetPanel(private val activity: Activity, private val container: LinearL
     }
 
     private fun setHeight(id: Int, h: Int) {
+        if (id < 0) {
+            val i = customItems.indexOfFirst { it.id == id }
+            if (i < 0) return
+            customItems[i] = customItems[i].copy(height = h)
+            saveCustom()
+            render()
+            return
+        }
         val i = items.indexOfFirst { it.first == id }
         if (i < 0) return
         items[i] = id to h
@@ -339,6 +486,15 @@ class WidgetPanel(private val activity: Activity, private val container: LinearL
     }
 
     private fun move(id: Int, delta: Int) {
+        if (id < 0) {
+            val i = customItems.indexOfFirst { it.id == id }
+            val j = i + delta
+            if (i < 0 || j < 0 || j >= customItems.size) return
+            val t = customItems[i]; customItems[i] = customItems[j]; customItems[j] = t
+            saveCustom()
+            render()
+            return
+        }
         val i = items.indexOfFirst { it.first == id }
         val j = i + delta
         if (i < 0 || j < 0 || j >= items.size) return
@@ -348,6 +504,14 @@ class WidgetPanel(private val activity: Activity, private val container: LinearL
     }
 
     private fun remove(id: Int) {
+        if (id < 0) {
+            customViews.remove(id)
+            customItems.removeAll { it.id == id }
+            saveCustom()
+            render()
+            onChanged?.invoke()
+            return
+        }
         try { host.deleteAppWidgetId(id) } catch (e: Exception) { }
         views.remove(id)
         items.removeAll { it.first == id }

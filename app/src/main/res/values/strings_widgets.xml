@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 自作ウィジェット（時計・天気）用の文字列。既存の strings_widget.xml（他アプリウィジェット選択用）とは分けている。 -->
+<resources>
+    <string name="widget_source_title">ウィジェットの種類を選ぶ</string>
+    <string name="widget_source_custom">自作ウィジェットから選ぶ</string>
+    <string name="widget_source_installed">インストール済みウィジェットから選ぶ</string>
+
+    <string name="widget_custom_pick_title">自作ウィジェットを選ぶ</string>
+    <string name="widget_custom_clock">時計</string>
+    <string name="widget_custom_weather">天気</string>
+
+    <string name="widget_weather_need_location">位置を設定してください（長押しメニュー）</string>
+    <string name="widget_weather_error">天気を取得できませんでした</string>
+    <string name="widget_weather_temp_format">%d℃</string>
+
+    <string name="widget_weather_clear">晴れ</string>
+    <string name="widget_weather_cloudy">くもり</string>
+    <string name="widget_weather_fog">霧</string>
+    <string name="widget_weather_drizzle">小雨</string>
+    <string name="widget_weather_rain">雨</string>
+    <string name="widget_weather_snow">雪</string>
+    <string name="widget_weather_thunder">雷雨</string>
+    <string name="widget_weather_unknown">不明</string>
+
+    <string name="widget_weather_location_menu">位置を設定</string>
+    <string name="widget_weather_location_title">天気の地点（緯度・経度）を設定</string>
+    <string name="widget_weather_lat_hint">緯度（例：36.594）</string>
+    <string name="widget_weather_lon_hint">経度（例：136.625）</string>
+</resources>

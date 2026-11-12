@@ -10,6 +10,9 @@ import androidx.recyclerview.widget.RecyclerView
 /**
  * グリッド（item_app）とドック（item_dock）の両方で使うアダプタ。
  * 並べ替えモード中はタップ・長押しメニューを無効にし、ドラッグだけを受け付ける。
+ *
+ * 要素は AppInfo? で、null は「空きマス」（グリッド上の位置は占有するが、何も描画しない
+ * プレースホルダー）を表す。ドックは常に null を含めずに使う想定。
  */
 class AppAdapter(
     private val layoutRes: Int,
@@ -17,7 +20,7 @@ class AppAdapter(
     private val onLongClick: (View, AppInfo) -> Unit
 ) : RecyclerView.Adapter<AppAdapter.ViewHolder>() {
 
-    private val apps = ArrayList<AppInfo>()
+    private val apps = ArrayList<AppInfo?>()
 
     /** 並べ替えモード中は true（タップ起動・長押しメニューを無効化） */
     var reorderMode: Boolean = false
@@ -51,19 +54,27 @@ class AppAdapter(
         val label: TextView? = view.findViewById(R.id.appLabel)
     }
 
-    fun submit(list: List<AppInfo>) {
+    /** null を含められる（null = 空きマス）。ドックは通常 null を含まないリストを渡す */
+    fun submit(list: List<AppInfo?>) {
         apps.clear()
         apps.addAll(list)
         notifyDataSetChanged()
     }
 
-    fun items(): List<AppInfo> = apps.toList()
+    /** 現在の並び（空きマスは null）をそのまま返す */
+    fun items(): List<AppInfo?> = apps.toList()
 
-    fun move(from: Int, to: Int) {
-        if (from !in apps.indices || to !in apps.indices) return
-        val item = apps.removeAt(from)
-        apps.add(to, item)
-        notifyItemMoved(from, to)
+    /** 指定位置が空きマス（ドラッグで持ち上げられない）かどうか */
+    fun isEmpty(position: Int): Boolean = position in apps.indices && apps[position] == null
+
+    /** 指定位置2つの内容を入れ替える（空きマスとの入れ替えも可） */
+    fun swap(from: Int, to: Int) {
+        if (from !in apps.indices || to !in apps.indices || from == to) return
+        val tmp = apps[from]
+        apps[from] = apps[to]
+        apps[to] = tmp
+        notifyItemChanged(from)
+        notifyItemChanged(to)
     }
 
     override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): ViewHolder {
@@ -73,9 +84,6 @@ class AppAdapter(
 
     override fun onBindViewHolder(holder: ViewHolder, position: Int) {
         val app = apps[position]
-        holder.icon.setImageDrawable(app.icon)
-        holder.icon.contentDescription = app.label
-        holder.label?.text = app.label
         val density = holder.itemView.resources.displayMetrics.density
         var iconDp = iconSizeDp * iconScale
         if (iconMaxDp > 0) iconDp = minOf(iconDp, iconMaxDp.toFloat())
@@ -90,12 +98,36 @@ class AppAdapter(
             height = px
         }
         holder.label?.textSize = labelSp(iconSizeDp)
+
+        if (app == null) {
+            // 空きマス：見た目は何も描かないが、グリッド上の位置は占有する
+            holder.icon.setImageDrawable(null)
+            holder.icon.contentDescription = null
+            holder.icon.visibility = View.INVISIBLE
+            holder.label?.text = null
+            holder.label?.visibility = View.INVISIBLE
+            holder.itemView.setOnClickListener(null)
+            holder.itemView.setOnLongClickListener(null)
+            holder.itemView.isClickable = false
+            holder.itemView.isLongClickable = false
+            holder.itemView.isFocusable = false
+            holder.itemView.contentDescription = null
+            return
+        }
+
+        holder.icon.visibility = View.VISIBLE
+        holder.label?.visibility = View.VISIBLE
+        holder.icon.setImageDrawable(app.icon)
+        holder.icon.contentDescription = app.label
+        holder.label?.text = app.label
         if (reorderMode) {
             holder.itemView.setOnClickListener(null)
             holder.itemView.setOnLongClickListener(null)
             holder.itemView.isClickable = false
             holder.itemView.isLongClickable = false
+            holder.itemView.isFocusable = false
         } else {
+            holder.itemView.isFocusable = true
             holder.itemView.setOnClickListener { onClick(app) }
             holder.itemView.setOnLongClickListener {
                 onLongClick(it, app)
