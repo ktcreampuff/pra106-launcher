@@ -543,6 +543,7 @@ class MainActivity : Activity() {
         other.add(0, MENU_CLEAR_BG, 3, getString(R.string.home_menu_clear_background))
         other.add(0, MENU_NATIVE_HOME, 4, getString(R.string.home_menu_native_home))
         other.add(0, MENU_CHANGE_HOME, 5, getString(R.string.home_menu_change_home))
+        other.add(0, MENU_DEVICE_INFO, 6, getString(R.string.home_menu_device_info))
         menu.setOnMenuItemClickListener { item ->
             when (item.itemId) {
                 MENU_REORDER -> setReorderMode(true)
@@ -573,10 +574,101 @@ class MainActivity : Activity() {
                     Prefs.setGridSlots(this, emptyList())
                     applyLists()
                 }
+                MENU_DEVICE_INFO -> showDeviceInfoDialog()
             }
             true
         }
         menu.show()
+    }
+
+    /**
+     * ADB/root無しでも分かる範囲のビルド情報・システムプロパティをまとめて表示する調査用ダイアログ。
+     * MTCH/HCT系プラットフォームかどうかの手がかり（FINGERPRINT・DEVICE・PRODUCT等）を
+     * 画面上でそのまま読める・コピーできる形にする。
+     */
+    private fun showDeviceInfoDialog() {
+        val sb = StringBuilder()
+
+        sb.append("[android.os.Build]\n")
+        val buildFields = listOf(
+            "MANUFACTURER" to Build.MANUFACTURER,
+            "BRAND" to Build.BRAND,
+            "MODEL" to Build.MODEL,
+            "DEVICE" to Build.DEVICE,
+            "PRODUCT" to Build.PRODUCT,
+            "HARDWARE" to Build.HARDWARE,
+            "BOARD" to Build.BOARD,
+            "BOOTLOADER" to Build.BOOTLOADER,
+            "DISPLAY" to Build.DISPLAY,
+            "ID" to Build.ID,
+            "TAGS" to Build.TAGS,
+            "TYPE" to Build.TYPE,
+            "FINGERPRINT" to Build.FINGERPRINT,
+            "HOST" to Build.HOST,
+            "USER" to Build.USER
+        )
+        for ((name, value) in buildFields) {
+            sb.append("$name = $value\n")
+        }
+        sb.append("VERSION.RELEASE = ${Build.VERSION.RELEASE}\n")
+        sb.append("VERSION.SDK_INT = ${Build.VERSION.SDK_INT}\n")
+        sb.append("VERSION.INCREMENTAL = ${Build.VERSION.INCREMENTAL}\n")
+        sb.append("VERSION.SECURITY_PATCH = ${Build.VERSION.SECURITY_PATCH}\n")
+        try {
+            sb.append("VERSION.BASE_OS = ${Build.VERSION.BASE_OS}\n")
+        } catch (e: Exception) { }
+
+        // 通常アプリから読めるシステムプロパティを reflection 経由で追加確認する。
+        // ro.build.* 系はパッケージマネージャ経由で見える build.prop の値なので、
+        // ADB無しでも「ro.product.odm.*」「ro.vendor.*」等にMTCH/HCTの手がかりが残っていないか見る。
+        val propKeys = listOf(
+            "ro.product.odm.name", "ro.product.odm.device", "ro.product.odm.model",
+            "ro.vendor.product.name", "ro.vendor.product.device",
+            "ro.product.system.name", "ro.product.system.device",
+            "ro.build.product", "ro.build.description", "ro.build.flavor",
+            "ro.hardware.platform", "ro.boot.hardware", "ro.boot.product.hardware.sku",
+            "ro.carrier", "ro.custom.build.version", "ro.mtch.version", "persist.sys.mtch.version",
+            "ro.hct.version", "persist.hct.version"
+        )
+        val propResults = StringBuilder()
+        try {
+            val clazz = Class.forName("android.os.SystemProperties")
+            val get = clazz.getMethod("get", String::class.java)
+            for (key in propKeys) {
+                val value = try { get.invoke(null, key) as? String } catch (e: Exception) { null }
+                if (!value.isNullOrBlank()) {
+                    propResults.append("$key = $value\n")
+                }
+            }
+        } catch (e: Exception) {
+            propResults.append("(SystemProperties にアクセスできませんでした: ${e.javaClass.simpleName})\n")
+        }
+        sb.append("\n[system properties]\n")
+        if (propResults.isEmpty()) {
+            sb.append("(該当する値は見つかりませんでした)\n")
+        } else {
+            sb.append(propResults)
+        }
+
+        val scroll = android.widget.ScrollView(this)
+        val text = TextView(this).apply {
+            text = sb.toString()
+            textSize = 12f
+            setPadding(24, 16, 24, 16)
+            setTextIsSelectable(true)
+        }
+        scroll.addView(text)
+
+        AlertDialog.Builder(this)
+            .setTitle(R.string.home_menu_device_info)
+            .setView(scroll)
+            .setPositiveButton(R.string.home_device_info_copy) { _, _ ->
+                val clipboard = getSystemService(CLIPBOARD_SERVICE) as android.content.ClipboardManager
+                clipboard.setPrimaryClip(android.content.ClipData.newPlainText("device_info", sb.toString()))
+                Toast.makeText(this, R.string.home_device_info_copied, Toast.LENGTH_SHORT).show()
+            }
+            .setNegativeButton(R.string.home_dialog_close, null)
+            .show()
     }
 
     private fun busyToast() {
@@ -1224,6 +1316,7 @@ class MainActivity : Activity() {
         private const val MENU_CHANGE_HOME = 16
         private const val MENU_SET_BG = 17
         private const val MENU_CLEAR_BG = 18
+        private const val MENU_DEVICE_INFO = 25
         private const val REQUEST_BACKGROUND = 100
         private const val BG_BASE_NAME = "background"
         private const val BG_TMP_NAME = "background_tmp"
