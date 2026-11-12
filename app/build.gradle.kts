@@ -10,7 +10,11 @@ android {
     defaultConfig {
         applicationId = "com.shikaketegami.pra106launcher"
         minSdk = 24
-        targetSdk = 33
+        // targetSdkVersionが31以上だと、Android 13以降の「制限付き設定」機能により
+        // サイドロードしたアプリのユーザー補助(Accessibility)有効化がブロックされる。
+        // 本機のOEM版Settingsアプリには、その制限を解除する「制限付き設定を許可」メニューが
+        // 見当たらないため、30未満に下げてこの制限自体を回避する（Play Store配布ではないため問題なし）。
+        targetSdk = 30
         versionCode = 9
         versionName = "0.6.3"
     }
