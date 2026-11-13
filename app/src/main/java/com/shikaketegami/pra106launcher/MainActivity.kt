@@ -469,6 +469,13 @@ class MainActivity : Activity() {
         if (display.isNotEmpty() && remainder != 0) {
             repeat(span - remainder) { display.add(null) }
         }
+        // ここまでだと「最後の行」しか空きマスにならず、画面に余っている部分は
+        // そもそもグリッドの一部ではない（置き場所として認識されない）ため、
+        // 画面に収まる行数ぶんまで空きマスを追加しておく。
+        val minCells = span * computeMinFillRows()
+        if (display.size < minCells) {
+            repeat(minCells - display.size) { display.add(null) }
+        }
         gridAdapter.submit(display)
 
         dockAdapter.submit(Prefs.getDock(this).mapNotNull { byKey[it] }.take(Prefs.DOCK_MAX))
@@ -515,10 +522,16 @@ class MainActivity : Activity() {
     }
 
     private fun showDockMenu(anchor: View, app: AppInfo) {
+        val hiddenFromGrid = Prefs.getHidden(this).contains(app.key)
         val menu = PopupMenu(this, anchor)
         menu.menu.add(0, MENU_DOCK, 0, getString(R.string.home_item_dock_remove))
-        menu.setOnMenuItemClickListener {
-            removeFromDock(app)
+        menu.menu.add(0, MENU_HIDE_TOGGLE, 1,
+            getString(if (hiddenFromGrid) R.string.home_item_show_in_grid else R.string.home_item_hide_from_grid))
+        menu.setOnMenuItemClickListener { item ->
+            when (item.itemId) {
+                MENU_DOCK -> removeFromDock(app)
+                MENU_HIDE_TOGGLE -> setHiddenFromGrid(app, !hiddenFromGrid)
+            }
             true
         }
         menu.show()
@@ -541,6 +554,13 @@ class MainActivity : Activity() {
 
     private fun hideApp(app: AppInfo) {
         Prefs.setHidden(this, Prefs.getHidden(this) + app.key)
+        applyLists()
+    }
+
+    /** ドックに置いたアプリを、上部のアプリ一覧（グリッド）にも出すかどうかを切り替える */
+    private fun setHiddenFromGrid(app: AppInfo, hide: Boolean) {
+        val hidden = Prefs.getHidden(this)
+        Prefs.setHidden(this, if (hide) hidden + app.key else hidden - app.key)
         applyLists()
     }
 
@@ -1200,17 +1220,40 @@ class MainActivity : Activity() {
         return RecyclerView.NO_POSITION
     }
 
+    // 直前に反映した列数・最小行数（変化したときだけ applyLists() を呼び直す）
+    private var lastAppliedSpan = -1
+    private var lastAppliedMinRows = -1
+
     private fun updateColumns() {
-        if (!Prefs.getAutoColumns(this)) return
-        val usable = appGrid.width - appGrid.paddingLeft - appGrid.paddingRight
-        if (usable <= 0) return
-        val cellPx = (Prefs.getIconSizeDp(this) + CELL_MARGIN_DP) * resources.displayMetrics.density
-        val n = (usable / cellPx).toInt().coerceAtLeast(MIN_AUTO_COLUMNS)
-        if (gridLayout.spanCount != n) {
-            gridLayout.spanCount = n
-            // 列数が変わったら、最後の行の空きマス埋め直しも含めて再構築する
+        if (Prefs.getAutoColumns(this)) {
+            val usable = appGrid.width - appGrid.paddingLeft - appGrid.paddingRight
+            if (usable > 0) {
+                val cellPx = (Prefs.getIconSizeDp(this) + CELL_MARGIN_DP) * resources.displayMetrics.density
+                val n = (usable / cellPx).toInt().coerceAtLeast(MIN_AUTO_COLUMNS)
+                gridLayout.spanCount = n
+            }
+        }
+        val minRows = computeMinFillRows()
+        // 列数か、画面を埋めるのに必要な行数のどちらかが変わったら、
+        // 空きマスの再計算（最後の行埋め＋画面を埋める分の空き行）を含めて再構築する
+        if (gridLayout.spanCount != lastAppliedSpan || minRows != lastAppliedMinRows) {
+            lastAppliedSpan = gridLayout.spanCount
+            lastAppliedMinRows = minRows
             applyLists()
         }
+    }
+
+    /**
+     * appGridの見える高さに、何行ぶんのマスが収まるかを求める。
+     * ここまで空きマスを用意しておくことで、アプリ数が少ないときに
+     * 画面の余った部分がグリッドの一部ではなくなる（ドロップ不可になる）のを防ぐ。
+     */
+    private fun computeMinFillRows(): Int {
+        val usableHeight = appGrid.height - appGrid.paddingTop - appGrid.paddingBottom
+        if (usableHeight <= 0) return MIN_FILL_ROWS
+        val rowPx = (Prefs.getIconSizeDp(this) + ROW_EXTRA_DP) * resources.displayMetrics.density
+        if (rowPx <= 0) return MIN_FILL_ROWS
+        return (usableHeight / rowPx).toInt().coerceAtLeast(MIN_FILL_ROWS)
     }
 
     private fun showIconSizeDialog() {
@@ -1346,6 +1389,9 @@ class MainActivity : Activity() {
         private const val DOCK_ITEM_EXTRA_DP = 20
         private const val DEFAULT_AUTO_COLUMNS = 4
         private const val CELL_MARGIN_DP = 32
+        // 1マスの高さ分 = アイコン高さ + ラベル分＋上下パディング（item_app.xmlのpadding 14dp*2 + ラベル行）のおおよその見積り
+        private const val ROW_EXTRA_DP = 56
+        private const val MIN_FILL_ROWS = 2
         private const val MENU_GROUP_EDIT = 20
         private const val MENU_GROUP_OTHER = 21
         private const val MENU_ICON_SIZE = 22
@@ -1363,6 +1409,7 @@ class MainActivity : Activity() {
         private const val MENU_SET_BG = 17
         private const val MENU_CLEAR_BG = 18
         private const val MENU_DEVICE_INFO = 25
+        private const val MENU_HIDE_TOGGLE = 26
         private const val REQUEST_BACKGROUND = 100
         private const val BG_BASE_NAME = "background"
         private const val BG_TMP_NAME = "background_tmp"
