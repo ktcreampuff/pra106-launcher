@@ -162,20 +162,22 @@ class MainActivity : Activity() {
             // 上書きすると、以後そのビューのタップ時リップルが永久に消えてしまうため）
             val cx = viewHolder.itemView.left + dX + viewHolder.itemView.width / 2f
             val cy = viewHolder.itemView.top + dY + viewHolder.itemView.height / 2f
-            val hovered = recyclerView.findChildViewUnder(cx, cy)
-            // isCurrentlyActive=falseは「指を離した後、元の表示位置へ戻るアニメーション」の描画フレーム。
-            // この間もonChildDrawは呼ばれ続け、dX/dYが0へ補間されていくため、ここでhoverDropPositionを
-            // 更新すると最終的に「自分自身の上」＝NO_POSITIONで上書きされてしまう。
-            // 実際の指の動き（isCurrentlyActive=true）の間だけ更新する。
+            // findChildViewUnder()はRecyclerViewの現在の子ビュー（ItemAnimatorによる
+            // 一時的な追加/削除/変更アニメーション中の残存ビューを含む）から点で探すため、
+            // 直前のスワップ直後などにNO_POSITIONを返すことがあった（「半分以上置けない」
+            // 「元の場所にすら置けない」の原因）。LayoutManagerのfindViewByPosition()を使い、
+            // アダプタ位置を基準に矩形判定する方式に変更し、安定させる。
+            val fromPos = viewHolder.bindingAdapterPosition
+            val targetPos = findGridPositionAt(cx, cy)
+            val hoveredView = if (targetPos != RecyclerView.NO_POSITION) gridLayout.findViewByPosition(targetPos) else null
             if (isCurrentlyActive) {
-                hoverDropPosition = if (hovered != null && hovered !== viewHolder.itemView)
-                    recyclerView.getChildAdapterPosition(hovered)
-                else RecyclerView.NO_POSITION
+                hoverDropPosition = if (targetPos != RecyclerView.NO_POSITION && targetPos != fromPos)
+                    targetPos else RecyclerView.NO_POSITION
             }
             for (i in 0 until recyclerView.childCount) {
                 val child = recyclerView.getChildAt(i)
                 if (child === viewHolder.itemView) continue
-                child.foreground = if (isCurrentlyActive && child === hovered)
+                child.foreground = if (isCurrentlyActive && child === hoveredView)
                     ContextCompat.getDrawable(child.context, R.drawable.grid_cell_hover_bg)
                 else null
             }
@@ -1169,6 +1171,23 @@ class MainActivity : Activity() {
     }
 
     /** 自動ON時、グリッドの実幅とアイコンの大きさから列数を決める（最低3） */
+    /**
+     * 指定した座標（appGridの子ビューと同じ座標系）が、どのアダプタ位置のマスに
+     * 乗っているかを求める。RecyclerView.findChildViewUnder()は一時的な
+     * アニメーション用ビューに引っかかって不安定になることがあるため使わず、
+     * GridLayoutManagerのfindViewByPosition()で現在のレイアウト位置を直接確認する。
+     */
+    private fun findGridPositionAt(cx: Float, cy: Float): Int {
+        val count = gridAdapter.itemCount
+        for (pos in 0 until count) {
+            val v = gridLayout.findViewByPosition(pos) ?: continue
+            if (cx >= v.left && cx <= v.right && cy >= v.top && cy <= v.bottom) {
+                return pos
+            }
+        }
+        return RecyclerView.NO_POSITION
+    }
+
     private fun updateColumns() {
         if (!Prefs.getAutoColumns(this)) return
         val usable = appGrid.width - appGrid.paddingLeft - appGrid.paddingRight
