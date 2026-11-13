@@ -181,6 +181,18 @@ class MainActivity : Activity() {
                     ContextCompat.getDrawable(child.context, R.drawable.grid_cell_hover_bg)
                 else null
             }
+            // アプリ数が多く画面に収まりきらない場合、下（または上）の行へドラッグで
+            // 届かなかった（スワイプしないと見えない行には置けなかった）ため、
+            // ドラッグ中に端へ近づいたら自動でスクロールする。
+            if (isCurrentlyActive) {
+                val edge = viewHolder.itemView.height * 0.6f
+                when {
+                    cy < edge && recyclerView.canScrollVertically(-1) ->
+                        recyclerView.scrollBy(0, (-(edge - cy) / 2f).toInt().coerceAtMost(-1))
+                    cy > recyclerView.height - edge && recyclerView.canScrollVertically(1) ->
+                        recyclerView.scrollBy(0, ((edge - (recyclerView.height - cy)) / 2f).toInt().coerceAtLeast(1))
+                }
+            }
         }
 
         override fun clearView(recyclerView: RecyclerView, viewHolder: RecyclerView.ViewHolder) {
