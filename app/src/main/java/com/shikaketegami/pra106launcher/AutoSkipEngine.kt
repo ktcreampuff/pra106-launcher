@@ -36,9 +36,16 @@ class AutoSkipEngine(private val service: AccessibilityService) {
         private const val COOLDOWN_MS = 1500L
         private const val SAME_BUTTON_MS = 3000L
         private const val TAP_MS = 50L
+        // typeWindowContentChangedは再生中だと1秒に何度も飛んでくるため、
+        // クリック後のクールダウンとは別に、画面全体を走査する頻度そのものを間引く。
+        // これがないと動画再生中ずっとノードツリーの全走査が走り続け、
+        // Android 13以降のユーザー補助サービス応答性チェックに引っかかって
+        // サービスが勝手にOFFに戻される（ONにしても戻る不具合の主因と思われる）。
+        private const val SCAN_INTERVAL_MS = 300L
     }
 
     private var lastClickAt = 0L
+    private var lastScanAt = 0L
     private val recentKeys = HashMap<String, Long>()
 
     fun onEvent(event: AccessibilityEvent) {
@@ -47,6 +54,8 @@ class AutoSkipEngine(private val service: AccessibilityService) {
             if (pkg !in TARGETS) return
             val now = SystemClock.elapsedRealtime()
             if (lastClickAt != 0L && now - lastClickAt < COOLDOWN_MS) return
+            if (now - lastScanAt < SCAN_INTERVAL_MS) return
+            lastScanAt = now
 
             val root = service.rootInActiveWindow ?: return
             if (root.packageName?.toString() !in TARGETS) return
