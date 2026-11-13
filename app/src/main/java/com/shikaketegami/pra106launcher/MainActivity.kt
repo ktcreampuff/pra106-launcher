@@ -140,9 +140,9 @@ class MainActivity : Activity() {
                 // 「持ち上げた」ことを振動でも伝える（運転中は見た目の変化だけでは気づきにくいため）
                 viewHolder.itemView.performHapticFeedback(android.view.HapticFeedbackConstants.LONG_PRESS)
             }
-            if (actionState == ItemTouchHelper.ACTION_STATE_IDLE) {
-                hoverDropPosition = RecyclerView.NO_POSITION
-            }
+            // 注意：ここでIDLE遷移時にhoverDropPositionをリセットしてはいけない。
+            // 指を離した直後、clearView()より先にIDLEへ遷移するため、ここで消すと
+            // clearViewが参照する前に値が失われ、常に「元の位置に戻る」ことになる。
         }
 
         override fun onChildDraw(
@@ -163,13 +163,19 @@ class MainActivity : Activity() {
             val cx = viewHolder.itemView.left + dX + viewHolder.itemView.width / 2f
             val cy = viewHolder.itemView.top + dY + viewHolder.itemView.height / 2f
             val hovered = recyclerView.findChildViewUnder(cx, cy)
-            hoverDropPosition = if (hovered != null && hovered !== viewHolder.itemView)
-                recyclerView.getChildAdapterPosition(hovered)
-            else RecyclerView.NO_POSITION
+            // isCurrentlyActive=falseは「指を離した後、元の表示位置へ戻るアニメーション」の描画フレーム。
+            // この間もonChildDrawは呼ばれ続け、dX/dYが0へ補間されていくため、ここでhoverDropPositionを
+            // 更新すると最終的に「自分自身の上」＝NO_POSITIONで上書きされてしまう。
+            // 実際の指の動き（isCurrentlyActive=true）の間だけ更新する。
+            if (isCurrentlyActive) {
+                hoverDropPosition = if (hovered != null && hovered !== viewHolder.itemView)
+                    recyclerView.getChildAdapterPosition(hovered)
+                else RecyclerView.NO_POSITION
+            }
             for (i in 0 until recyclerView.childCount) {
                 val child = recyclerView.getChildAt(i)
                 if (child === viewHolder.itemView) continue
-                child.foreground = if (child === hovered)
+                child.foreground = if (isCurrentlyActive && child === hovered)
                     ContextCompat.getDrawable(child.context, R.drawable.grid_cell_hover_bg)
                 else null
             }
