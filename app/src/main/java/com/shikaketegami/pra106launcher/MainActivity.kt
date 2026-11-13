@@ -108,6 +108,11 @@ class MainActivity : Activity() {
     private val touchHelper = ItemTouchHelper(object : ItemTouchHelper.SimpleCallback(
         ItemTouchHelper.UP or ItemTouchHelper.DOWN or ItemTouchHelper.LEFT or ItemTouchHelper.RIGHT, 0
     ) {
+        // clearView()が呼ばれる時点ではtranslationX/Yが既に0へリセットされているため、
+        // ドロップ先の判定はドラッグ中（onChildDraw、translationがまだ有効な間）に確定させ、
+        // ここに保持しておく。clearView側ではこの値を使う（直接translationから再計算しない）。
+        private var hoverDropPosition: Int = RecyclerView.NO_POSITION
+
         override fun isLongPressDragEnabled(): Boolean = reorderMode
 
         override fun getMovementFlags(recyclerView: RecyclerView, viewHolder: RecyclerView.ViewHolder): Int {
@@ -135,6 +140,9 @@ class MainActivity : Activity() {
                 // 「持ち上げた」ことを振動でも伝える（運転中は見た目の変化だけでは気づきにくいため）
                 viewHolder.itemView.performHapticFeedback(android.view.HapticFeedbackConstants.LONG_PRESS)
             }
+            if (actionState == ItemTouchHelper.ACTION_STATE_IDLE) {
+                hoverDropPosition = RecyclerView.NO_POSITION
+            }
         }
 
         override fun onChildDraw(
@@ -155,6 +163,9 @@ class MainActivity : Activity() {
             val cx = viewHolder.itemView.left + dX + viewHolder.itemView.width / 2f
             val cy = viewHolder.itemView.top + dY + viewHolder.itemView.height / 2f
             val hovered = recyclerView.findChildViewUnder(cx, cy)
+            hoverDropPosition = if (hovered != null && hovered !== viewHolder.itemView)
+                recyclerView.getChildAdapterPosition(hovered)
+            else RecyclerView.NO_POSITION
             for (i in 0 until recyclerView.childCount) {
                 val child = recyclerView.getChildAt(i)
                 if (child === viewHolder.itemView) continue
@@ -168,15 +179,13 @@ class MainActivity : Activity() {
             val from = viewHolder.bindingAdapterPosition
             var moved = false
             if (from != RecyclerView.NO_POSITION) {
-                val cx = viewHolder.itemView.left + viewHolder.itemView.translationX + viewHolder.itemView.width / 2f
-                val cy = viewHolder.itemView.top + viewHolder.itemView.translationY + viewHolder.itemView.height / 2f
-                val targetView = recyclerView.findChildViewUnder(cx, cy)
-                val to = targetView?.let { recyclerView.getChildAdapterPosition(it) } ?: RecyclerView.NO_POSITION
+                val to = hoverDropPosition
                 if (to != RecyclerView.NO_POSITION && to != from) {
                     gridAdapter.swap(from, to)
                     moved = true
                 }
             }
+            hoverDropPosition = RecyclerView.NO_POSITION
             super.clearView(recyclerView, viewHolder)
             viewHolder.itemView.alpha = 1f
             if (moved) {
