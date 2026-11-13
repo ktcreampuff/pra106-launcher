@@ -47,14 +47,24 @@ class LauncherAccessibilityService : AccessibilityService() {
         Prefs.load(this)
         autoSkip = AutoSkipEngine(this)
         ignoredPkgs = buildIgnoredPackages()
+        DiagLog.append(this, "A11Y", "接続（ON）")
     }
 
     override fun onDestroy() {
+        // OSがユーザー補助設定を自動でOFFに戻した場合も、ここが呼ばれて切断される
+        DiagLog.append(this, "A11Y", "切断（OFFに戻った/サービス終了）")
         if (instance == this) instance = null
         super.onDestroy()
     }
 
-    override fun onInterrupt() {}
+    override fun onInterrupt() {
+        DiagLog.append(this, "A11Y", "onInterrupt（OSからの中断通知）")
+    }
+
+    override fun onUnbind(intent: Intent?): Boolean {
+        DiagLog.append(this, "A11Y", "onUnbind（バインド解除＝OFFにされた可能性）")
+        return super.onUnbind(intent)
+    }
 
     override fun onAccessibilityEvent(event: AccessibilityEvent?) {
         event ?: return

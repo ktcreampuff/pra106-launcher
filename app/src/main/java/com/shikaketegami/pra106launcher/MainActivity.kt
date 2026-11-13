@@ -593,6 +593,7 @@ class MainActivity : Activity() {
         other.add(0, MENU_NATIVE_HOME, 4, getString(R.string.home_menu_native_home))
         other.add(0, MENU_CHANGE_HOME, 5, getString(R.string.home_menu_change_home))
         other.add(0, MENU_DEVICE_INFO, 6, getString(R.string.home_menu_device_info))
+        other.add(0, MENU_DIAG_LOG, 7, getString(R.string.home_menu_diag_log))
         menu.setOnMenuItemClickListener { item ->
             when (item.itemId) {
                 MENU_REORDER -> setReorderMode(true)
@@ -624,6 +625,7 @@ class MainActivity : Activity() {
                     applyLists()
                 }
                 MENU_DEVICE_INFO -> showDeviceInfoDialog()
+                MENU_DIAG_LOG -> showDiagLogDialog()
             }
             true
         }
@@ -715,6 +717,37 @@ class MainActivity : Activity() {
                 val clipboard = getSystemService(CLIPBOARD_SERVICE) as android.content.ClipboardManager
                 clipboard.setPrimaryClip(android.content.ClipData.newPlainText("device_info", sb.toString()))
                 Toast.makeText(this, R.string.home_device_info_copied, Toast.LENGTH_SHORT).show()
+            }
+            .setNegativeButton(R.string.home_dialog_close, null)
+            .show()
+    }
+
+    /**
+     * ユーザー補助のON/OFF切り替わりや未捕捉例外を記録した簡易ログを表示する。
+     * ADB/rootが無い実機で「ONにしても戻る」現象の原因（OSによる自動OFFか、
+     * プロセスごと落ちているか）を切り分けるための調査用。
+     */
+    private fun showDiagLogDialog() {
+        val content = DiagLog.read(this)
+        val scroll = android.widget.ScrollView(this)
+        val text = TextView(this).apply {
+            this.text = content
+            textSize = 12f
+            setPadding(24, 16, 24, 16)
+            setTextIsSelectable(true)
+        }
+        scroll.addView(text)
+
+        AlertDialog.Builder(this)
+            .setTitle(R.string.home_menu_diag_log)
+            .setView(scroll)
+            .setPositiveButton(R.string.home_device_info_copy) { _, _ ->
+                val clipboard = getSystemService(CLIPBOARD_SERVICE) as android.content.ClipboardManager
+                clipboard.setPrimaryClip(android.content.ClipData.newPlainText("diag_log", content))
+                Toast.makeText(this, R.string.home_device_info_copied, Toast.LENGTH_SHORT).show()
+            }
+            .setNeutralButton(R.string.home_diag_log_clear) { _, _ ->
+                DiagLog.clear(this)
             }
             .setNegativeButton(R.string.home_dialog_close, null)
             .show()
@@ -1355,7 +1388,12 @@ class MainActivity : Activity() {
             return
         }
 
-        if (!isAccessibilityServiceEnabled()) {
+        val accessibilityOn = isAccessibilityServiceEnabled()
+        if (lastKnownAccessibilityOn != accessibilityOn) {
+            DiagLog.append(this, "CHECK", "ユーザー補助の状態が変化: ${lastKnownAccessibilityOn} -> $accessibilityOn")
+            lastKnownAccessibilityOn = accessibilityOn
+        }
+        if (!accessibilityOn) {
             permissionBanner.visibility = View.VISIBLE
             permissionBanner.text = getString(R.string.grant_accessibility_permission)
             permissionBanner.setOnClickListener {
@@ -1367,6 +1405,9 @@ class MainActivity : Activity() {
         permissionBanner.visibility = View.GONE
         StatusBarService.start(this)
     }
+
+    // 直前に確認したユーザー補助の状態（null=未確認）。変化した瞬間だけログに残す。
+    private var lastKnownAccessibilityOn: Boolean? = null
 
     private fun isAccessibilityServiceEnabled(): Boolean {
         // LauncherAccessibilityService.isRunning はサービスが実際に動作中かを確実に返す。
@@ -1410,6 +1451,7 @@ class MainActivity : Activity() {
         private const val MENU_CLEAR_BG = 18
         private const val MENU_DEVICE_INFO = 25
         private const val MENU_HIDE_TOGGLE = 26
+        private const val MENU_DIAG_LOG = 27
         private const val REQUEST_BACKGROUND = 100
         private const val BG_BASE_NAME = "background"
         private const val BG_TMP_NAME = "background_tmp"
