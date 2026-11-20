@@ -22,6 +22,11 @@ class LauncherAccessibilityService : AccessibilityService() {
         fun performBack(): Boolean = instance?.performGlobalAction(GLOBAL_ACTION_BACK) ?: false
         fun openRecents(): Boolean = instance?.performGlobalAction(GLOBAL_ACTION_RECENTS) ?: false
 
+        /** 標準の「ホーム」操作。物理ホームボタンと同じ扱いになるため、
+         *  再生中の動画アプリ（YouTube/Netflix等）側のPinP（ピクチャーインピクチャー）への
+         *  移行トリガーとしても正しく機能する。 */
+        fun performHome(): Boolean = instance?.performGlobalAction(GLOBAL_ACTION_HOME) ?: false
+
         /** 直前に使っていたアプリへ切り替える。成功したら true */
         fun launchPreviousApp(): Boolean = instance?.switchToPrevious() ?: false
 

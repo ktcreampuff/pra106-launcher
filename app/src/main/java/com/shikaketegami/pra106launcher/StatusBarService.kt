@@ -341,6 +341,13 @@ class StatusBarService : Service() {
 
     /** 自作ランチャーのトップを開く（MainActivity は singleTask・onNewIntent で先頭へスクロール） */
     private fun openLauncherTop() {
+        // ユーザー補助が有効なら標準のGLOBAL_ACTION_HOMEを使う。
+        // これは物理ホームボタンと同じ扱いになるので、再生中のYouTube/Netflixが
+        // ピクチャーインピクチャー（PinP）へ正しく移行できる（Intentで直接アプリを
+        // 起動する方法だとPinPのトリガーがかからない場合がある）。
+        if (LauncherAccessibilityService.isRunning && LauncherAccessibilityService.performHome()) {
+            return
+        }
         try {
             startActivity(
                 Intent(this, MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)

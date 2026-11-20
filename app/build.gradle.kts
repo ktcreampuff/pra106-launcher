@@ -15,8 +15,8 @@ android {
         // 本機のOEM版Settingsアプリには、その制限を解除する「制限付き設定を許可」メニューが
         // 見当たらないため、30未満に下げてこの制限自体を回避する（Play Store配布ではないため問題なし）。
         targetSdk = 30
-        versionCode = 13
-        versionName = "0.6.7"
+        versionCode = 14
+        versionName = "0.6.8"
     }
 
     // 署名を固定（CIのたびに鍵が変わると上書きインストールできないため）
